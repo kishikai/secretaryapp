@@ -28,6 +28,20 @@ CREATE TABLE IF NOT EXISTS message_variants (
 );
 """
 
+FTS_SCHEMA = """
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    message_text, content='messages', content_rowid='id', tokenize='unicode61 remove_diacritics 2');
+CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts(rowid, message_text) VALUES (new.id, new.message_text); END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, message_text) VALUES ('delete', old.id, old.message_text); END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF message_text ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, message_text) VALUES ('delete', old.id, old.message_text);
+    INSERT INTO messages_fts(rowid, message_text) VALUES (new.id, new.message_text); END;
+"""
+
+FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
+
 
 def connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
@@ -62,3 +76,12 @@ def init_db(db_path: str) -> None:
             "INSERT OR IGNORE INTO message_variants (message_id, source, message_text, confidence) "
             "SELECT id, source, message_text, confidence FROM messages"
         )
+        # Migration for databases created before search and filters (v0.4).
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages (created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages (chat_id, id)")
+        had_fts = (
+            conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'messages_fts'").fetchone()
+            is not None
+        )
+        # executescript commits first; creating the index and rebuilding it run as one script.
+        conn.executescript(FTS_SCHEMA if had_fts else FTS_SCHEMA + FTS_REBUILD)

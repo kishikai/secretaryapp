@@ -33,7 +33,7 @@ Endpoints:
 | GET | `/health` | Liveness check, including a database query |
 | POST | `/messages` | Store one message (`message_text`, `source` = `clipboard` or `ocr`, optional `chat_id`, `sender`, `timestamp`, `confidence`) |
 | POST | `/ocr/screenshots` | Upload a Messenger screenshot (multipart `file`, optional `chat_id`); stores each detected message with `source` = `ocr` |
-| GET | `/messages?limit=50` | List the newest messages (limit 1–500), each with its `sources` |
+| GET | `/messages` | List messages, newest first, each with its `sources`; optional search and filters (see "Search and filters") |
 | GET | `/messages/{id}/variants` | Every extraction recorded for one message (`id`, `source`, `message_text`, `confidence`, `created_at`); 404 if the message does not exist |
 
 Run the tests:
@@ -42,6 +42,62 @@ Run the tests:
 cd backend
 python -m pytest -q
 ```
+
+## Search and filters
+
+`GET /messages` always returns a JSON list ordered by `id` descending. All parameters are optional and are combined with AND.
+
+| Parameter | Meaning |
+|---|---|
+| `q` | Full-text search, 1–200 characters. Words are matched case-insensitively and ignoring accents, and each word matches as a prefix (`meet` finds `meeting`, `cafe` finds `café`). Several words must all be present. Punctuation and search operators are ignored, so `q` is only ever treated as words; a `q` with no letter or digit returns 422. At most the first 20 words are used. |
+| `chat_id` | Exact chat id (max 200 characters) |
+| `sender` | Exact sender (max 200 characters) |
+| `source` | `clipboard` or `ocr` |
+| `since` | Only messages stored at or after this time (ISO 8601 datetime, for example `2024-01-31T09:00:00Z`; no offset means UTC) |
+| `until` | Only messages stored before this time (same format); `since` must be earlier than `until`, otherwise 422 |
+| `before_id` | Only messages with an `id` below this value (at least 1). To page, pass the last `id` of the previous page |
+| `limit` | Page size, 1–500, default 50 |
+
+Times compare against `created_at`, the moment the message was first stored (UTC). In a URL, write a `+` in an offset as `%2B`.
+
+```bash
+curl "http://127.0.0.1:8000/messages?q=meeting&chat_id=my-group&source=clipboard&limit=20"
+curl "http://127.0.0.1:8000/messages?limit=20&before_id=120"   # next page
+```
+
+## Backups
+
+`backend/app/backup.py` takes a consistent copy of the database using SQLite's online backup, so it is safe while the server is running. Uncommitted writes are not included. The copy is written to a temporary `.partial` file, checked with `PRAGMA integrity_check`, and only then renamed to `secretary-YYYYMMDDTHHMMSS-ffffffZ.db` (UTC). Afterwards only the newest `--keep` files named `secretary-*.db` in the backup directory are kept; other files are never touched.
+
+```bash
+cd backend
+python -m app.backup                                   # data/secretary.db -> backups/
+python -m app.backup --db data/secretary.db --dir backups --keep 14
+```
+
+Defaults: `--db` is `SECRETARY_DB_PATH` or `data/secretary.db`, `--dir` is `backups` (ignored by git), `--keep` is 14. On success it prints the backup path; on failure it prints one line to stderr and exits with code 1 (a missing database is an error; no empty database is created).
+
+Daily at 02:00 with cron (use absolute paths):
+
+```cron
+0 2 * * * cd /path/to/secretaryapp/backend && .venv/bin/python -m app.backup --dir /path/to/backups
+```
+
+Daily at 02:00 with Windows Task Scheduler:
+
+```bat
+schtasks /Create /SC DAILY /ST 02:00 /TN "SecretaryBackup" /TR "cmd /c cd /d C:\secretaryapp\backend && .venv\Scripts\python.exe -m app.backup --dir C:\secretaryapp\backups"
+```
+
+There is deliberately no HTTP endpoint for backups: the API has no authentication yet. Backups contain every stored message, so keep the backup directory private and copy it off the machine as well.
+
+Restore:
+
+1. Stop the server.
+2. Keep the current database in case you need it: `mv data/secretary.db data/secretary.db.before-restore`.
+3. Delete any `secretary.db-journal`, `secretary.db-wal` or `secretary.db-shm` files next to it. A leftover journal from a crash would otherwise be replayed onto the restored copy and corrupt it.
+4. Copy the chosen backup into place: `cp backups/secretary-20240131T020000-000000Z.db data/secretary.db`.
+5. Start the server again. Older backups are migrated automatically on start-up.
 
 ## How messages are merged
 
@@ -98,6 +154,8 @@ All changes are applied automatically on start-up; existing databases are migrat
 - v0.2 (Sprint 2): `messages.content_hash` column and its unique index `idx_messages_content_hash`.
 - v0.3 (Sprint 4): `messages.match_key` column and index `idx_messages_chat_match (chat_id, match_key)`; new `message_variants` table. Existing rows get `match_key` computed, and one variant each from their current text and source.
 
+- v0.4 (Sprint 5): full-text search. `messages_fts` is an FTS5 external-content index over `messages.message_text` (tokenizer `unicode61 remove_diacritics 2`), kept in sync by the triggers `messages_fts_ai`, `messages_fts_ad` and `messages_fts_au`, so text that is replaced when clipboard text upgrades an OCR reading is re-indexed too. If the index did not exist at start-up, it is rebuilt from the existing rows once (`INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')`). New indexes `idx_messages_created (created_at)` and `idx_messages_chat_id (chat_id, id)` serve the list filters.
+
 ## Frontend
 
 Requires Node.js 22 or newer and the backend running on port 8000.
@@ -141,4 +199,5 @@ python -m pytest -q
 - Included: clipboard collector, text normalisation and duplicate detection.
 - Sprint 3: OCR of screenshots into stored messages (`POST /ocr/screenshots`, pluggable engine, PaddleOCR optional).
 - Sprint 4: one pipeline for clipboard and OCR that merges the same message across sources (exact, normalised and fuzzy matching), keeps every extraction in `message_variants`, and migrates existing databases.
+- Sprint 5: full-text search and list filters on `GET /messages` (`q`, `chat_id`, `sender`, `source`, `since`, `until`, `before_id`), and database backups with retention (`python -m app.backup`).
 - Not yet included: sender names and timestamps (clipboard and OCR), authentication, Docker, rules and notifications.

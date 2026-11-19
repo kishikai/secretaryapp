@@ -1,6 +1,8 @@
 import os
+import re
 import threading
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Literal, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
@@ -11,8 +13,25 @@ from app.pipeline import MessageIn, sources_for, store_message
 
 DEFAULT_DB_PATH = os.environ.get("SECRETARY_DB_PATH", "data/secretary.db")
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_SEARCH_TOKENS = 20
 # The real OCR engine is not thread-safe, and endpoints run in a threadpool.
 OCR_LOCK = threading.Lock()
+
+
+def fts_match_expression(q: str) -> str:
+    """Quote every word as a prefix term so user input can never be FTS syntax."""
+    tokens = re.findall(r"\w+", q)
+    if not tokens:
+        raise HTTPException(422, "Search needs at least one letter or digit")
+    return " ".join(f'"{token}"*' for token in tokens[:MAX_SEARCH_TOKENS])
+
+
+def stored_timestamp(value: datetime) -> str:
+    """Format like messages.created_at (UTC, millisecond precision); naive means UTC."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    value = value.astimezone(timezone.utc)
+    return value.strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
 
 
 def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
@@ -86,10 +105,47 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
         }
 
     @app.get("/messages")
-    def list_messages(limit: int = Query(default=50, ge=1, le=500)):
+    def list_messages(
+        limit: int = Query(default=50, ge=1, le=500),
+        q: Optional[str] = Query(default=None, min_length=1, max_length=200),
+        chat_id: Optional[str] = Query(default=None, max_length=200),
+        sender: Optional[str] = Query(default=None, max_length=200),
+        source: Optional[Literal["clipboard", "ocr"]] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        before_id: Optional[int] = Query(default=None, ge=1),
+    ):
+        # Only fixed SQL fragments go into the query; every value is a ? parameter.
+        conditions: list[str] = []
+        params: list = []
+        if q is not None:
+            conditions.append("id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)")
+            params.append(fts_match_expression(q))
+        if chat_id is not None:
+            conditions.append("chat_id = ?")
+            params.append(chat_id)
+        if sender is not None:
+            conditions.append("sender = ?")
+            params.append(sender)
+        if source is not None:
+            conditions.append("source = ?")
+            params.append(source)
+        if since is not None and until is not None and stored_timestamp(since) >= stored_timestamp(until):
+            raise HTTPException(422, "since must be earlier than until")
+        if since is not None:
+            conditions.append("created_at >= ?")
+            params.append(stored_timestamp(since))
+        if until is not None:
+            conditions.append("created_at < ?")
+            params.append(stored_timestamp(until))
+        if before_id is not None:
+            conditions.append("id < ?")
+            params.append(before_id)
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
         with connect(app.state.db_path) as conn:
             rows = conn.execute(
-                "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)
+                "SELECT * FROM messages" + where + " ORDER BY id DESC LIMIT ?",
+                (*params, limit),
             ).fetchall()
             sources = sources_for(conn, [row["id"] for row in rows])
         return [{**dict(row), "sources": sources[row["id"]]} for row in rows]
