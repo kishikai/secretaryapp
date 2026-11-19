@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS messages (
     timestamp TEXT,
     source TEXT NOT NULL CHECK (source IN ('clipboard', 'ocr')),
     confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    content_hash TEXT
 );
 """
 
@@ -26,3 +27,10 @@ def init_db(db_path: str) -> None:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with connect(db_path) as conn:
         conn.executescript(SCHEMA)
+        # Migration for databases created before duplicate detection (v0.1.0).
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+        if "content_hash" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN content_hash TEXT")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_content_hash ON messages (content_hash)"
+        )

@@ -1,7 +1,9 @@
+import hashlib
 import os
+import unicodedata
 from typing import Literal, Optional
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Response
 from pydantic import BaseModel, Field, field_validator
 
 from app.db import connect, init_db
@@ -19,11 +21,17 @@ class MessageIn(BaseModel):
 
     @field_validator("message_text")
     @classmethod
-    def strip_and_require_text(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
+    def normalise_and_require_text(cls, value: str) -> str:
+        text = unicodedata.normalize("NFC", value).replace("\r\n", "\n").replace("\r", "\n")
+        text = "\n".join(line.rstrip() for line in text.split("\n")).strip()
+        if not text:
             raise ValueError("message_text must not be blank")
-        return stripped
+        return text
+
+    def content_hash(self) -> str:
+        # shortcut: identical text with no sender/timestamp in one chat counts as one message; refine once real samples show sender/time.
+        key = "\x1f".join([self.chat_id or "", self.sender or "", self.timestamp or "", self.message_text])
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
@@ -38,12 +46,14 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
         return {"status": "ok"}
 
     @app.post("/messages", status_code=201)
-    def create_message(message: MessageIn):
+    def create_message(message: MessageIn, response: Response):
+        content_hash = message.content_hash()
         with connect(app.state.db_path) as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO messages (chat_id, message_text, sender, timestamp, source, confidence)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO messages
+                    (chat_id, message_text, sender, timestamp, source, confidence, content_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.chat_id,
@@ -52,12 +62,15 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
                     message.timestamp,
                     message.source,
                     message.confidence,
+                    content_hash,
                 ),
             )
+            if cursor.rowcount == 0:
+                response.status_code = 200
             row = conn.execute(
-                "SELECT * FROM messages WHERE id = ?", (cursor.lastrowid,)
+                "SELECT * FROM messages WHERE content_hash = ?", (content_hash,)
             ).fetchone()
-        return dict(row)
+        return {**dict(row), "duplicate": cursor.rowcount == 0}
 
     @app.get("/messages")
     def list_messages(limit: int = Query(default=50, ge=1, le=500)):
