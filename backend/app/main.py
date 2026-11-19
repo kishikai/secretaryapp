@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from app.db import connect, init_db
 from app.ocr import decode_image, group_lines
 from app.pipeline import MessageIn, sources_for, store_message
+from app.rules import categories_for
+from app.rules_api import router as rules_router
 
 DEFAULT_DB_PATH = os.environ.get("SECRETARY_DB_PATH", "data/secretary.db")
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -39,6 +41,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
     app = FastAPI(title="Secretary Messenger Monitor", version="0.1.0")
     app.state.db_path = db_path
     app.state.ocr_engine = ocr_engine
+    app.include_router(rules_router)
 
     def get_engine():
         with OCR_LOCK:
@@ -111,6 +114,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
         chat_id: Optional[str] = Query(default=None, max_length=200),
         sender: Optional[str] = Query(default=None, max_length=200),
         source: Optional[Literal["clipboard", "ocr"]] = None,
+        category: Optional[str] = Query(default=None, max_length=50),
         since: Optional[datetime] = None,
         until: Optional[datetime] = None,
         before_id: Optional[int] = Query(default=None, ge=1),
@@ -130,6 +134,12 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
         if source is not None:
             conditions.append("source = ?")
             params.append(source)
+        if category is not None:
+            conditions.append(
+                "id IN (SELECT m.message_id FROM message_matches m "
+                "JOIN rules r ON r.id = m.rule_id WHERE r.category = ?)"
+            )
+            params.append(category)
         if since is not None and until is not None and stored_timestamp(since) >= stored_timestamp(until):
             raise HTTPException(422, "since must be earlier than until")
         if since is not None:
@@ -147,8 +157,13 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
                 "SELECT * FROM messages" + where + " ORDER BY id DESC LIMIT ?",
                 (*params, limit),
             ).fetchall()
-            sources = sources_for(conn, [row["id"] for row in rows])
-        return [{**dict(row), "sources": sources[row["id"]]} for row in rows]
+            ids = [row["id"] for row in rows]
+            sources = sources_for(conn, ids)
+            categories = categories_for(conn, ids)
+        return [
+            {**dict(row), "sources": sources[row["id"]], "categories": categories[row["id"]]}
+            for row in rows
+        ]
 
     @app.get("/messages/{message_id}/variants")
     def list_variants(message_id: int):

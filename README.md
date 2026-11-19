@@ -33,8 +33,17 @@ Endpoints:
 | GET | `/health` | Liveness check, including a database query |
 | POST | `/messages` | Store one message (`message_text`, `source` = `clipboard` or `ocr`, optional `chat_id`, `sender`, `timestamp`, `confidence`) |
 | POST | `/ocr/screenshots` | Upload a Messenger screenshot (multipart `file`, optional `chat_id`); stores each detected message with `source` = `ocr` |
-| GET | `/messages` | List messages, newest first, each with its `sources`; optional search and filters (see "Search and filters") |
+| GET | `/messages` | List messages, newest first, each with its `sources` and `categories`; optional search and filters (see "Search and filters") |
 | GET | `/messages/{id}/variants` | Every extraction recorded for one message (`id`, `source`, `message_text`, `confidence`, `created_at`); 404 if the message does not exist |
+| POST | `/rules` | Create a rule (201); see "Rules and notifications" |
+| GET | `/rules` | List rules |
+| GET | `/rules/{id}` | One rule; 404 if missing |
+| PATCH | `/rules/{id}` | Change fields of a rule (merged and re-validated); does not recompute existing matches |
+| DELETE | `/rules/{id}` | Delete a rule with its matches and notifications (204) |
+| POST | `/rules/{id}/backfill` | Apply the rule to every stored message, without notifications; returns `{"rule_id", "matching_messages"}` |
+| GET | `/notifications` | Notifications, newest first (`unread`, `limit`, `before_id`) |
+| POST | `/notifications/{id}/read` | Mark one notification read (idempotent) |
+| POST | `/notifications/read-all` | Mark every unread notification read; returns `{"marked": n}` |
 
 Run the tests:
 
@@ -53,6 +62,7 @@ python -m pytest -q
 | `chat_id` | Exact chat id (max 200 characters) |
 | `sender` | Exact sender (max 200 characters) |
 | `source` | `clipboard` or `ocr` |
+| `category` | Only messages matched by a rule with this exact category (max 50 characters) |
 | `since` | Only messages stored at or after this time (ISO 8601 datetime, for example `2024-01-31T09:00:00Z`; no offset means UTC) |
 | `until` | Only messages stored before this time (same format); `since` must be earlier than `until`, otherwise 422 |
 | `before_id` | Only messages with an `id` below this value (at least 1). To page, pass the last `id` of the previous page |
@@ -64,6 +74,53 @@ Times compare against `created_at`, the moment the message was first stored (UTC
 curl "http://127.0.0.1:8000/messages?q=meeting&chat_id=my-group&source=clipboard&limit=20"
 curl "http://127.0.0.1:8000/messages?limit=20&before_id=120"   # next page
 ```
+
+## Rules and notifications
+
+Rules detect keywords and predefined patterns in stored messages, tag them with a category and can create in-app notifications. Every message goes through the rules once it is stored (see `backend/app/rules.py`).
+
+A rule has a `name` (1-100 characters), a `kind`, an optional `category` (1-50 characters), `notify` (default `false`), `enabled` (default `true`) and an optional `chat_id` (the rule only applies in that chat; without it, in every chat).
+
+**Keyword rules** (`kind` = `keyword`) take `keywords`, 1-50 phrases of up to 100 characters, each with at least one letter or digit. A phrase matches whole words only, ignoring case, accents and punctuation: `meet` does not match `meeting`, `cafe` matches `Café`, and `see you` matches `Sige, see you mamaya`. A rule matches when any of its phrases does; the first matching phrase is recorded as `matched_text`.
+
+**Pattern rules** (`kind` = `pattern`) take `pattern`, one of six built-in detectors:
+
+| Pattern | Matches, for example |
+|---|---|
+| `url` | `https://example.com/a`, `www.example.com` |
+| `email` | `juan@example.com` |
+| `phone` | `0917 123 4567`, `+63 917 123 4567`, `09171234567` (10-15 digits; dates such as `2026-11-19` are not phones) |
+| `money` | `₱1,500`, `PHP 200`, `P50`, `$12.50`, `300 pesos` (not `6pm`) |
+| `time` | `6pm`, `6:30pm`, `18:30`, `9:05 AM` |
+| `date` | `2026-11-19`, `11/19`, `11/19/2026`, `Nov 19`, `November 19` |
+
+Keywords are required for keyword rules and rejected for pattern rules; `pattern` is the other way round. Patterns are simple heuristics: `1/2` reads as a date and `may 5` matches even in a sentence.
+
+**Categories.** A matching rule with a `category` adds it to the message. `GET /messages` returns each message's sorted `categories` and accepts `?category=` as a filter. `POST /messages` and each OCR item report `categories` too.
+
+**Notifications.** A message that newly matches a rule with `notify` set creates one notification (at most one per rule and message). A duplicate of a message does not create a second one, and a notification never disappears when the message is re-evaluated; it is history. `GET /notifications` lists them newest first with the rule name and message text; `?unread=true` or `false` filters, `limit` is 1-500 (default 50) and `before_id` pages.
+
+**Text corrections.** A message is re-evaluated whenever it is stored, and whenever its text changes: clipboard text replacing an OCR reading, or a higher-confidence OCR reading. An OCR misread such as `chalrs` does not match the keyword `chairs`; when the clipboard copy `chairs` is merged in, the message matches and the notification fires. If the replaced text no longer matches, the match (and category) is removed; its notification stays.
+
+**Backfill.** A new rule only sees messages stored after it was created. `POST /rules/{id}/backfill` applies it to every stored message and returns how many match. Backfill never creates notifications. Only that rule's matches change; a disabled rule matches nothing, so backfilling it clears its tags, and a rule with a `chat_id` only tags messages in that chat.
+
+**Editing and deleting.** `PATCH /rules/{id}` takes any of the fields, merges them into the stored rule and validates the result. It does not recompute existing matches: run backfill afterwards. When you change `kind`, null out the other kind's field: `{"kind": "pattern", "pattern": "url", "keywords": null}`. Disabling a rule (`"enabled": false`) stops new matches and keeps its history. `DELETE /rules/{id}` removes the rule together with its matches and notifications; disable the rule instead if you want to keep them.
+
+```bash
+curl -X POST http://127.0.0.1:8000/rules -H 'Content-Type: application/json' \
+  -d '{"name": "Chairs", "kind": "keyword", "keywords": ["chairs", "tables"], "category": "setup", "notify": true}'
+curl -X POST http://127.0.0.1:8000/rules -H 'Content-Type: application/json' \
+  -d '{"name": "Phone numbers", "kind": "pattern", "pattern": "phone", "category": "contact"}'
+curl -X POST http://127.0.0.1:8000/rules/1/backfill
+curl -X PATCH http://127.0.0.1:8000/rules/1 -H 'Content-Type: application/json' -d '{"enabled": false}'
+curl "http://127.0.0.1:8000/messages?category=setup"
+curl "http://127.0.0.1:8000/notifications?unread=true&limit=20"
+curl -X POST http://127.0.0.1:8000/notifications/3/read
+curl -X POST http://127.0.0.1:8000/notifications/read-all
+curl -X DELETE http://127.0.0.1:8000/rules/1
+```
+
+There are deliberately no custom regular expressions (a pattern that takes exponential time could freeze the server), no outbound webhooks and no email: the API has no authentication yet, so anyone who can reach it could abuse them. They will be added after the Sprint 7 login.
 
 ## Backups
 
@@ -156,6 +213,8 @@ All changes are applied automatically on start-up; existing databases are migrat
 
 - v0.4 (Sprint 5): full-text search. `messages_fts` is an FTS5 external-content index over `messages.message_text` (tokenizer `unicode61 remove_diacritics 2`), kept in sync by the triggers `messages_fts_ai`, `messages_fts_ad` and `messages_fts_au`, so text that is replaced when clipboard text upgrades an OCR reading is re-indexed too. If the index did not exist at start-up, it is rebuilt from the existing rows once (`INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')`). New indexes `idx_messages_created (created_at)` and `idx_messages_chat_id (chat_id, id)` serve the list filters.
 
+- v0.5 (Sprint 6): new tables `rules`, `message_matches` (unique per message and rule, index `idx_matches_rule`) and `notifications` (unique per rule and message, index `idx_notifications_unread (read_at, id)`). Created on start-up if missing; existing messages are not tagged until you run a rule's backfill.
+
 ## Frontend
 
 Requires Node.js 22 or newer and the backend running on port 8000.
@@ -200,4 +259,5 @@ python -m pytest -q
 - Sprint 3: OCR of screenshots into stored messages (`POST /ocr/screenshots`, pluggable engine, PaddleOCR optional).
 - Sprint 4: one pipeline for clipboard and OCR that merges the same message across sources (exact, normalised and fuzzy matching), keeps every extraction in `message_variants`, and migrates existing databases.
 - Sprint 5: full-text search and list filters on `GET /messages` (`q`, `chat_id`, `sender`, `source`, `since`, `until`, `before_id`), and database backups with retention (`python -m app.backup`).
-- Not yet included: sender names and timestamps (clipboard and OCR), authentication, Docker, rules and notifications.
+- Sprint 6: automation engine: keyword and predefined-pattern rules, categories, in-app notifications, backfill (`/rules`, `/notifications`, `category` filter on `GET /messages`).
+- Not yet included: sender names and timestamps (clipboard and OCR), authentication, Docker, custom regexes, webhooks and email, a frontend for rules and notifications.

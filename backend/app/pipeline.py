@@ -6,6 +6,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app import rules
+
 FUZZY_WINDOW = 500
 FUZZY_MIN_KEY_LENGTH = 12
 FUZZY_MIN_RATIO = 0.9
@@ -112,7 +114,8 @@ def _find_match(
     return None, None
 
 
-def _resolve_conflict(conn: sqlite3.Connection, row: sqlite3.Row, message: MessageIn) -> None:
+def _resolve_conflict(conn: sqlite3.Connection, row: sqlite3.Row, message: MessageIn) -> bool:
+    """Apply the merge rules to a matched row; True if its message_text changed."""
     if message.source == "clipboard" and row["source"] == "ocr":
         new_source, new_confidence = "clipboard", None
     elif (
@@ -122,7 +125,7 @@ def _resolve_conflict(conn: sqlite3.Connection, row: sqlite3.Row, message: Messa
     ):
         new_source, new_confidence = "ocr", message.confidence
     else:
-        return
+        return False
     try:
         conn.execute(
             """
@@ -141,7 +144,8 @@ def _resolve_conflict(conn: sqlite3.Connection, row: sqlite3.Row, message: Messa
         )
     except sqlite3.IntegrityError:
         # Another row already holds this exact text (content_hash is unique), so leave this row as is.
-        pass
+        return False
+    return message.message_text != row["message_text"]
 
 
 def sources_for(conn: sqlite3.Connection, message_ids: list[int]) -> dict[int, list[str]]:
@@ -191,9 +195,10 @@ def store_message(conn: sqlite3.Connection, message: MessageIn) -> tuple[dict, O
             match = "exact"
     if row is None:
         message_id = cursor.lastrowid
+        changed = True
     else:
         message_id = row["id"]
-        _resolve_conflict(conn, row, message)
+        changed = _resolve_conflict(conn, row, message)
 
     conn.execute(
         """
@@ -202,6 +207,9 @@ def store_message(conn: sqlite3.Connection, message: MessageIn) -> tuple[dict, O
         """,
         (message_id, message.source, message.message_text, message.confidence),
     )
+    if changed:
+        rules.evaluate(conn, message_id)
     stored = dict(conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone())
     stored["sources"] = sources_for(conn, [message_id])[message_id]
+    stored["categories"] = rules.categories_for(conn, [message_id])[message_id]
     return stored, match

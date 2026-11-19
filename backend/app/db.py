@@ -40,6 +40,40 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF message_text ON mes
     INSERT INTO messages_fts(rowid, message_text) VALUES (new.id, new.message_text); END;
 """
 
+RULES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('keyword', 'pattern')),
+    keywords TEXT,            -- JSON array of phrases, for kind = 'keyword'
+    pattern TEXT,             -- predefined pattern name, for kind = 'pattern'
+    category TEXT,
+    notify INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    chat_id TEXT,             -- NULL = every chat
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE TABLE IF NOT EXISTS message_matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES messages(id),
+    rule_id INTEGER NOT NULL REFERENCES rules(id),
+    matched_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (message_id, rule_id)
+);
+CREATE INDEX IF NOT EXISTS idx_matches_rule ON message_matches (rule_id);
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id INTEGER NOT NULL REFERENCES rules(id),
+    message_id INTEGER NOT NULL REFERENCES messages(id),
+    matched_text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    read_at TEXT,
+    UNIQUE (rule_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications (read_at, id);
+"""
+
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
 
@@ -85,3 +119,5 @@ def init_db(db_path: str) -> None:
         )
         # executescript commits first; creating the index and rebuilding it run as one script.
         conn.executescript(FTS_SCHEMA if had_fts else FTS_SCHEMA + FTS_REBUILD)
+        # Migration for databases created before rules and notifications (v0.5).
+        conn.executescript(RULES_SCHEMA)
