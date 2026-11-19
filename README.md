@@ -8,6 +8,7 @@ Only process content you are authorised to see. The project does not automate Me
 
 ```
 backend/    FastAPI app, SQLite storage, pytest tests
+collector/  Clipboard collector script (runs on your own desktop)
 frontend/   React + Vite admin view (proxies /api to the backend)
 ```
 
@@ -53,7 +54,32 @@ npm run build    # production build in dist/
 
 Set `BACKEND_URL` to point the dev proxy at a different backend.
 
+## Clipboard collector
+
+A small script that runs on your own desktop (never inside the backend). It watches the clipboard and posts each newly copied text to `POST /messages` with `source` = `clipboard` (and your `--chat-id`, if given).
+
+```bash
+cd collector
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python clipboard_collector.py --api-url http://127.0.0.1:8000 --chat-id my-group --interval 1.0
+```
+
+All options are optional; defaults are `http://127.0.0.1:8000` and 1 second. Press Ctrl+C to stop. Text already on the clipboard when the script starts is not sent. If the backend is unreachable or returns a 5xx error, the same text is retried on the next poll; a 4xx rejection (for example text over 10,000 characters) is logged and not retried.
+
+It only sends text that you copy, and it does not log message contents (only length, id and duplicate flag). **While it runs, everything you copy is sent**, so stop it before copying passwords or other private text. There is no authentication yet, so only point it at a backend you trust.
+
+Run the tests (no clipboard or `pyperclip` needed):
+
+```bash
+cd collector
+pip install pytest
+python -m pytest -q
+```
+
 ## Status
 
 - Sprint 1 foundation: backend, database connection, starter endpoints, frontend, tests.
-- Not yet included: authentication, Docker, clipboard and OCR extraction, duplicate detection, rules and notifications.
+- Included: clipboard collector, text normalisation and duplicate detection.
+- Not yet included: timestamps from the clipboard, authentication, Docker, OCR extraction, rules and notifications.
