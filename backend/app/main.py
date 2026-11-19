@@ -254,9 +254,12 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
     @app.get("/chats", dependencies=[Depends(require_admin)])
     def list_chats():
         with connect(app.state.db_path) as conn:
+            # Grouping on the (chat_id, id) index avoids reading every row; ids grow with
+            # created_at, so the newest id gives each chat's latest time.
             rows = conn.execute(
-                "SELECT chat_id, COUNT(*) AS count, MAX(created_at) AS latest_at FROM messages "
-                "GROUP BY chat_id ORDER BY latest_at DESC, MAX(id) DESC"
+                "SELECT g.chat_id, g.count, m.created_at AS latest_at FROM "
+                "(SELECT chat_id, COUNT(*) AS count, MAX(id) AS last_id FROM messages GROUP BY chat_id) g "
+                "JOIN messages m ON m.id = g.last_id ORDER BY latest_at DESC, g.last_id DESC"
             ).fetchall()
         return [dict(row) for row in rows]
 

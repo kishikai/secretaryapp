@@ -253,13 +253,27 @@ def test_success_clears_the_username_failures(app):
 # ------------------------------------------------------------- route audit
 
 
+def _walk(routes):
+    # FastAPI may wrap included routers (e.g. _IncludedRouter.original_router), so recurse.
+    for route in routes:
+        if isinstance(route, APIRoute):
+            yield route
+        inner = getattr(route, "original_router", None)
+        if inner is not None:
+            yield from _walk(inner.routes)
+
+
 def audited_routes(app):
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
-        for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
-            if (method, route.path) not in PUBLIC_ROUTES:
-                yield method, route.path
+    """Every (method, path) the app answers, from two sources so neither can hide a route:
+    the route tree (catches include_in_schema=False) and the OpenAPI schema (catches routers
+    however FastAPI wraps them)."""
+    found = {(m, r.path) for r in _walk(app.routes) for m in r.methods - {"HEAD", "OPTIONS"}}
+    app.openapi_schema = None  # rebuild so routes added after a first call are included
+    for path, operations in app.openapi()["paths"].items():
+        found |= {(method.upper(), path) for method in operations}
+    for method, path in sorted(found):
+        if (method, path) not in PUBLIC_ROUTES:
+            yield method, path
 
 
 def test_every_non_public_route_requires_credentials(anon, app):

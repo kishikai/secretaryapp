@@ -1,12 +1,19 @@
+import os
+import struct
 from dataclasses import dataclass
 from statistics import median
 from typing import Optional, Protocol
 
-import cv2
-import numpy as np
-
 MIN_SIDE = 16
 MAX_SIDE = 10_000
+# A long scrolling screenshot (1080 x 10,000) is about 11 MP. The limit stops decompression
+# bombs: a 1 MB PNG can declare 20,000 x 20,000 pixels and take 2.3 GB to decode.
+MAX_PIXELS = 25_000_000
+# Second layer: OpenCV refuses larger images itself, but only if this is set before cv2 loads.
+os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", str(MAX_PIXELS))
+
+import cv2  # noqa: E402
+import numpy as np  # noqa: E402
 RING = 3  # pixels around a text row sampled for its background colour
 COLOUR_TOLERANCE = 14  # per channel; absorbs anti-aliasing and JPEG noise
 
@@ -36,16 +43,57 @@ class OcrEngine(Protocol):
     def read(self, image: np.ndarray) -> list[OcrLine]: ...
 
 
+_JPEG_FRAME_MARKERS = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
+
+
+def declared_size(data: bytes) -> Optional[tuple[int, int]]:
+    """(width, height) from a PNG or JPEG header without decoding; None for anything else."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR" and len(data) >= 24:
+        return struct.unpack(">II", data[16:24])
+    if data[:2] != b"\xff\xd8":
+        return None
+    i = 2
+    while i + 9 <= len(data):
+        if data[i] != 0xFF:
+            return None
+        marker = data[i + 1]
+        if marker == 0xFF:  # fill byte
+            i += 1
+            continue
+        if marker == 0x01 or 0xD0 <= marker <= 0xD8:  # markers without a length
+            i += 2
+            continue
+        if marker in _JPEG_FRAME_MARKERS:
+            height, width = struct.unpack(">HH", data[i + 5 : i + 9])
+            return width, height
+        length = int.from_bytes(data[i + 2 : i + 4], "big")
+        if length < 2:
+            return None
+        i += 2 + length
+    return None
+
+
 def decode_image(data: bytes) -> np.ndarray:
-    image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError("File is not a readable image")
-    height, width = image.shape[:2]
+    size = declared_size(data)
+    if size is None:
+        raise ValueError("File is not a PNG or JPEG image")
+    width, height = size
     if min(width, height) < MIN_SIDE or max(width, height) > MAX_SIDE:
         raise ValueError(
             f"Image size {width}x{height} is out of range "
             f"(each side must be {MIN_SIDE}-{MAX_SIDE} pixels)"
         )
+    if width * height > MAX_PIXELS:
+        raise ValueError(f"Image is {width}x{height}; the limit is {MAX_PIXELS // 1_000_000} megapixels")
+    try:
+        image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error:
+        image = None
+    if image is None:
+        raise ValueError("File is not a readable image")
+    # Header and pixels must agree; OpenCV applies EXIF rotation, which may swap the sides.
+    if (image.shape[1], image.shape[0]) not in {(width, height), (height, width)}:
+        raise ValueError("File is not a readable image")
     return image
 
 

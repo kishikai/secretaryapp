@@ -246,7 +246,7 @@ When a message matches, no row is deleted. Clipboard text replaces OCR text (the
 
 ## OCR screenshots
 
-`POST /ocr/screenshots` takes a Messenger screenshot (multipart `file`, up to 10 MB, plus an optional `chat_id`), runs OCR, groups the text lines into chat bubbles and stores each bubble as a message with `source` = `ocr` and the OCR confidence. Re-uploading the same screenshot does not add rows; those messages come back with `duplicate: true`, and text that was also copied from the clipboard is merged into the same message (see "How messages are merged"). The response lists the stored messages (with `side`, `left` or `right`), `skipped_lines` (centred text such as timestamps and system notices) and `rejected` (bubbles that failed validation).
+`POST /ocr/screenshots` takes a Messenger screenshot (multipart `file`: a PNG or JPEG of at most 10 MB, 25 megapixels and 10,000 px per side, checked from the file header before any decoding; plus an optional `chat_id`), runs OCR, groups the text lines into chat bubbles and stores each bubble as a message with `source` = `ocr` and the OCR confidence. Re-uploading the same screenshot does not add rows; those messages come back with `duplicate: true`, and text that was also copied from the clipboard is merged into the same message (see "How messages are merged"). The response lists the stored messages (with `side`, `left` or `right`), `skipped_lines` (centred text such as timestamps and system notices) and `rejected` (bubbles that failed validation).
 
 ```bash
 curl -H "Authorization: Bearer $SECRETARY_TOKEN" -F file=@shot.png -F chat_id=my-group http://127.0.0.1:8000/ocr/screenshots
@@ -288,6 +288,8 @@ All changes are applied automatically on start-up; existing databases are migrat
 - v0.5 (Sprint 6): new tables `rules`, `message_matches` (unique per message and rule, index `idx_matches_rule`) and `notifications` (unique per rule and message, index `idx_notifications_unread (read_at, id)`). Created on start-up if missing; existing messages are not tagged until you run a rule's backfill.
 
 - v0.6 (Sprint 7): new tables `admins` (unique `username`, scrypt `password_hash`), `sessions` (primary key `token_hash`, a SHA-256 digest; `admin_id`, `expires_at`) and `api_tokens` (`name`, unique `token_hash`, `scope` limited to `ingest`, `created_at`, `last_used_at`, `revoked_at`). Created on start-up if missing; existing data is untouched, but the API now needs an admin (`python -m app.admin create-user`) before anything but `/health` can be used.
+
+- v0.7 (Sprint 8): foreign keys are enforced on every connection (`PRAGMA foreign_keys = ON`), and connections are always closed. New index `idx_messages_source (source)`; `idx_matches_rule` is replaced by the covering index `idx_matches_rule_message (rule_id, message_id)`. Both serve `/stats`.
 
 ## Frontend
 
@@ -342,4 +344,5 @@ python -m pytest -q
 - Sprint 5: full-text search and list filters on `GET /messages` (`q`, `chat_id`, `sender`, `source`, `since`, `until`, `before_id`), and database backups with retention (`python -m app.backup`).
 - Sprint 6: automation engine: keyword and predefined-pattern rules, categories, in-app notifications, backfill (`/rules`, `/notifications`, `category` filter on `GET /messages`).
 - Sprint 7: sign-in (admin accounts with scrypt passwords, 12-hour session cookies, CSRF header, login rate limit), ingest tokens for the collector, every route protected (checked by a route-audit test), security headers, `GET /stats` and `GET /chats`, an admin CLI (`python -m app.admin`), and the dashboard served by the backend.
-- Not yet included: sender names and timestamps (clipboard and OCR), Docker, and, as possible future work now that sign-in exists, custom regexes, webhooks and email.
+- Sprint 8: testing and optimisation. 253 backend and 27 collector tests (96% and 89% line coverage), an end-to-end workflow test, database-integrity tests, a performance benchmark (`python -m eval.perf_bench`, every call under 65 ms at 100,000 messages), a dependency audit (FastAPI stack upgraded past 8 Starlette advisories) and upload limits against decompression bombs. Full results, bug reports and known limitations: [`docs/test-report.md`](docs/test-report.md).
+- Not yet included: sender names and timestamps (clipboard and OCR), a Docker image, and, as possible future work now that sign-in exists, custom regexes, webhooks and email.

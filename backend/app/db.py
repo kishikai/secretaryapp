@@ -1,5 +1,7 @@
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from app.pipeline import match_key
 
@@ -61,7 +63,7 @@ CREATE TABLE IF NOT EXISTS message_matches (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (message_id, rule_id)
 );
-CREATE INDEX IF NOT EXISTS idx_matches_rule ON message_matches (rule_id);
+CREATE INDEX IF NOT EXISTS idx_matches_rule_message ON message_matches (rule_id, message_id);
 CREATE TABLE IF NOT EXISTS notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     rule_id INTEGER NOT NULL REFERENCES rules(id),
@@ -101,10 +103,18 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
 
-def connect(db_path: str) -> sqlite3.Connection:
+@contextmanager
+def connect(db_path: str) -> Iterator[sqlite3.Connection]:
+    """A connection that commits on success, rolls back on error, and is always closed."""
     conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        # SQLite ignores REFERENCES clauses unless this is set on every connection.
+        conn.execute("PRAGMA foreign_keys = ON")
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db(db_path: str) -> None:
@@ -137,6 +147,9 @@ def init_db(db_path: str) -> None:
         # Migration for databases created before search and filters (v0.4).
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages (created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages (chat_id, id)")
+        # v0.7 (Sprint 8): /stats counts by source and by category without scanning whole tables.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_source ON messages (source)")
+        conn.execute("DROP INDEX IF EXISTS idx_matches_rule")  # replaced by idx_matches_rule_message
         had_fts = (
             conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'messages_fts'").fetchone()
             is not None
