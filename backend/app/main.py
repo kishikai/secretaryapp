@@ -1,66 +1,18 @@
-import hashlib
 import os
-import sqlite3
 import threading
-import unicodedata
-from typing import Literal, Optional
+from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import ValidationError
 
 from app.db import connect, init_db
 from app.ocr import decode_image, group_lines
+from app.pipeline import MessageIn, sources_for, store_message
 
 DEFAULT_DB_PATH = os.environ.get("SECRETARY_DB_PATH", "data/secretary.db")
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 # The real OCR engine is not thread-safe, and endpoints run in a threadpool.
 OCR_LOCK = threading.Lock()
-
-
-class MessageIn(BaseModel):
-    message_text: str = Field(min_length=1, max_length=10_000)
-    chat_id: Optional[str] = Field(default=None, max_length=200)
-    sender: Optional[str] = Field(default=None, max_length=200)
-    timestamp: Optional[str] = Field(default=None, max_length=50)
-    source: Literal["clipboard", "ocr"]
-    confidence: Optional[float] = Field(default=None, ge=0, le=1)
-
-    @field_validator("message_text")
-    @classmethod
-    def normalise_and_require_text(cls, value: str) -> str:
-        text = unicodedata.normalize("NFC", value).replace("\r\n", "\n").replace("\r", "\n")
-        text = "\n".join(line.rstrip() for line in text.split("\n")).strip()
-        if not text:
-            raise ValueError("message_text must not be blank")
-        return text
-
-    def content_hash(self) -> str:
-        # shortcut: identical text with no sender/timestamp in one chat counts as one message; refine once real samples show sender/time.
-        key = "\x1f".join([self.chat_id or "", self.sender or "", self.timestamp or "", self.message_text])
-        return hashlib.sha256(key.encode("utf-8")).hexdigest()
-
-
-def store_message(conn: sqlite3.Connection, message: MessageIn) -> tuple[dict, bool]:
-    """Insert a message; returns (stored row, duplicate)."""
-    content_hash = message.content_hash()
-    cursor = conn.execute(
-        """
-        INSERT OR IGNORE INTO messages
-            (chat_id, message_text, sender, timestamp, source, confidence, content_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            message.chat_id,
-            message.message_text,
-            message.sender,
-            message.timestamp,
-            message.source,
-            message.confidence,
-            content_hash,
-        ),
-    )
-    row = conn.execute("SELECT * FROM messages WHERE content_hash = ?", (content_hash,)).fetchone()
-    return dict(row), cursor.rowcount == 0
 
 
 def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
@@ -88,10 +40,10 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
     @app.post("/messages", status_code=201)
     def create_message(message: MessageIn, response: Response):
         with connect(app.state.db_path) as conn:
-            row, duplicate = store_message(conn, message)
-        if duplicate:
+            row, match = store_message(conn, message)
+        if match is not None:
             response.status_code = 200
-        return {**row, "duplicate": duplicate}
+        return {**row, "duplicate": match is not None, "match": match}
 
     @app.post("/ocr/screenshots")
     def ocr_screenshot(
@@ -123,8 +75,10 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
                 except ValidationError:
                     rejected.append(item.text)
                     continue
-                row, duplicate = store_message(conn, message)
-                stored.append({**row, "duplicate": duplicate, "side": item.side})
+                row, match = store_message(conn, message)
+                stored.append(
+                    {**row, "duplicate": match is not None, "match": match, "side": item.side}
+                )
         return {
             "messages": stored,
             "skipped_lines": [line.text for line in skipped],
@@ -136,6 +90,19 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
         with connect(app.state.db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            sources = sources_for(conn, [row["id"] for row in rows])
+        return [{**dict(row), "sources": sources[row["id"]]} for row in rows]
+
+    @app.get("/messages/{message_id}/variants")
+    def list_variants(message_id: int):
+        with connect(app.state.db_path) as conn:
+            if conn.execute("SELECT 1 FROM messages WHERE id = ?", (message_id,)).fetchone() is None:
+                raise HTTPException(404, "Message not found")
+            rows = conn.execute(
+                "SELECT id, source, message_text, confidence, created_at "
+                "FROM message_variants WHERE message_id = ? ORDER BY id",
+                (message_id,),
             ).fetchall()
         return [dict(row) for row in rows]
 
