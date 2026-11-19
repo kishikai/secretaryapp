@@ -82,30 +82,42 @@ def _ring(image: np.ndarray, row: "_Row") -> tuple[np.ndarray, np.ndarray]:
     return ys, xs
 
 
-def _same_bubble(image: np.ndarray, a: "_Row", b: "_Row", cache: dict) -> Optional[bool]:
-    """True/False if a and b sit in the same/different chat bubble; None if a is on the page background.
+def _region(labels: np.ndarray, ys: np.ndarray, xs: np.ndarray) -> int:
+    found = labels[ys, xs]
+    found = found[found > 0]
+    return int(np.bincount(found).argmax()) if found.size else 0
 
-    A bubble is a connected region of a's background colour that does not reach two image corners,
+
+class _Bubble:
+    """The chat bubble around a row: a connected region of the row's background colour."""
+
+    def __init__(self, labels: np.ndarray, label: int, x0: int, x1: int):
+        self.labels, self.label, self.x0, self.x1 = labels, label, x0, x1
+
+    def contains(self, image: np.ndarray, row: _Row) -> bool:
+        return _region(self.labels, *_ring(image, row)) == self.label
+
+
+def _bubble(image: np.ndarray, row: _Row, cache: dict) -> Optional[_Bubble]:
+    """The row's bubble, or None when the row sits on the page background.
+
+    The region of the row's background colour counts as the page when it reaches two image corners,
     so paragraph gaps inside one bubble keep it whole and a 2px gap between bubbles splits them.
     """
-    ys, xs = _ring(image, a)
+    ys, xs = _ring(image, row)
     colour = np.median(image[ys, xs], axis=0)
     key = tuple(int(c) // 4 for c in colour)
     if key not in cache:
         mask = np.all(np.abs(image.astype(np.int16) - colour) <= COLOUR_TOLERANCE, axis=2)
-        cache[key] = cv2.connectedComponents(mask.astype(np.uint8), connectivity=4)[1]
-    labels = cache[key]
-
-    def region(ys, xs) -> int:
-        found = labels[ys, xs]
-        found = found[found > 0]
-        return int(np.bincount(found).argmax()) if found.size else 0
-
-    label = region(ys, xs)
+        _, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=4)
+        cache[key] = labels, stats
+    labels, stats = cache[key]
+    label = _region(labels, ys, xs)
     corners = [labels[0, 0], labels[0, -1], labels[-1, 0], labels[-1, -1]]
     if label == 0 or sum(int(c) == label for c in corners) >= 2:
         return None
-    return region(*_ring(image, b)) == label
+    left = int(stats[label, cv2.CC_STAT_LEFT])
+    return _Bubble(labels, label, left, left + int(stats[label, cv2.CC_STAT_WIDTH]))
 
 
 def group_lines(
@@ -114,23 +126,8 @@ def group_lines(
     """Group OCR lines into chat bubbles. Returns (messages, skipped lines)."""
     # shortcut: thresholds tuned on synthetic screenshots; retune once real Messenger samples exist.
     width = image.shape[1]
-    skipped: list[OcrLine] = []
-    candidates: list[OcrLine] = []
-    for line in lines:
-        if not line.text.strip():
-            continue
-        centre = (line.x0 + line.x1) / 2
-        if (
-            abs(centre - width / 2) <= 0.06 * width
-            and (line.x1 - line.x0) <= 0.5 * width
-            and line.x0 >= 0.2 * width
-        ):
-            skipped.append(line)
-        else:
-            candidates.append(line)
-
     rows: list[_Row] = []
-    for line in sorted(candidates, key=lambda l: (l.y0, l.x0)):
+    for line in sorted((l for l in lines if l.text.strip()), key=lambda l: (l.y0, l.x0)):
         for row in rows:
             if row.overlaps_vertically(line):
                 row.add(line)
@@ -138,30 +135,52 @@ def group_lines(
         else:
             rows.append(_Row(line))
     rows.sort(key=lambda r: r.y0)
-    if not rows:
+
+    def side_of(x0: float, x1: float) -> str:
+        return "right" if (width - x1) < x0 else "left"
+
+    # Timestamps and notices sit on the page; a short centred line inside a bubble is message text.
+    cache: dict = {}
+    skipped: list[OcrLine] = []
+    kept: list[tuple[_Row, Optional[_Bubble]]] = []
+    for row in rows:
+        bubble = _bubble(image, row, cache)
+        centre = (row.x0 + row.x1) / 2
+        if (
+            bubble is None
+            and abs(centre - width / 2) <= 0.06 * width
+            and (row.x1 - row.x0) <= 0.5 * width
+            and row.x0 >= 0.2 * width
+        ):
+            skipped.extend(row.lines)
+        else:
+            kept.append((row, bubble))
+    if not kept:
         return [], skipped
 
-    median_height = median(r.y1 - r.y0 for r in rows)
-    regions: dict = {}
-    groups: list[tuple[str, list[_Row]]] = []
-    for row in rows:
-        side = "right" if (width - row.x1) < row.x0 else "left"
+    median_height = median(r.y1 - r.y0 for r, _ in kept)
+    groups: list[tuple[str, Optional[_Bubble], list[_Row]]] = []
+    for row, bubble in kept:
+        # A bubble's side comes from the bubble, not the row: the last wrapped line of an
+        # own (right) message is left-aligned and can end far from the right edge.
+        side = side_of(bubble.x0, bubble.x1) if bubble else side_of(row.x0, row.x1)
         if groups:
-            g_side, g_rows = groups[-1]
-            g_x0 = min(r.x0 for r in g_rows)
-            g_x1 = max(r.x1 for r in g_rows)
-            g_y1 = max(r.y1 for r in g_rows)
-            same = _same_bubble(image, g_rows[-1], row, regions)
-            close = row.y0 - g_y1 <= 0.6 * median_height  # fallback when there is no bubble
-            if (
-                side == g_side
-                and row.x0 <= g_x1
-                and g_x0 <= row.x1
-                and (same if same is not None else close)
-            ):
+            g_side, g_bubble, g_rows = groups[-1]
+            if g_bubble is not None:
+                join = g_bubble.contains(image, row)
+            elif bubble is not None:
+                join = False
+            else:  # both on the page: fall back to line spacing
+                join = (
+                    side == g_side
+                    and row.x0 <= max(r.x1 for r in g_rows)
+                    and min(r.x0 for r in g_rows) <= row.x1
+                    and row.y0 - max(r.y1 for r in g_rows) <= 0.6 * median_height
+                )
+            if join:
                 g_rows.append(row)
                 continue
-        groups.append((side, [row]))
+        groups.append((side, bubble, [row]))
 
     def bubble_text(g_rows: list[_Row]) -> str:
         # A gap wider than normal line spacing inside one bubble is a blank line in the original.
@@ -180,7 +199,7 @@ def group_lines(
             x1=max(r.x1 for r in g_rows),
             y1=max(r.y1 for r in g_rows),
         )
-        for side, g_rows in groups
+        for side, _, g_rows in groups
     ]
     return messages, skipped
 

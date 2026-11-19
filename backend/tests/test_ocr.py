@@ -187,3 +187,22 @@ def test_light_mode_bubbles_on_white_page():
             line("Yes", 330, 150, 380, 170)]
     messages, _ = group_lines(rows, image)
     assert [(m.text, m.side) for m in messages] == [("Are we still\n\nmeeting at 6?", "left"), ("Yes", "right")]
+
+
+def test_short_last_line_of_own_bubble_stays_in_it():
+    # Regression from the eval: text in a right bubble is left-aligned, so its short last line sat
+    # mid-screen and was labelled "left" or skipped as a timestamp.
+    image = bubbles((170, 50, 388, 120), background=(255, 255, 255), colour=(255, 132, 0))
+    rows = [line("Running 10 minutes late,", 180, 60, 370, 80), line("sorry!", 180, 90, 222, 110)]
+    messages, skipped = group_lines(rows, image)
+    assert [(m.text, m.side) for m in messages] == [("Running 10 minutes late,\nsorry!", "right")]
+    assert skipped == []
+
+
+def test_centred_timestamp_on_page_between_bubbles_is_skipped():
+    image = bubbles((10, 20, 200, 60), (200, 120, 390, 160), background=(0, 0, 0))
+    stamp = line("Today 14:32", 170, 80, 230, 96)
+    rows = [line("hi there", 20, 30, 120, 50), stamp, line("hello", 300, 130, 380, 150)]
+    messages, skipped = group_lines(rows, image)
+    assert [(m.text, m.side) for m in messages] == [("hi there", "left"), ("hello", "right")]
+    assert skipped == [stamp]
