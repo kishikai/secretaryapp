@@ -1,12 +1,16 @@
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from app.auth import LoginRateLimiter, require_admin, require_ingest
+from app.auth_api import router as auth_router
 from app.db import connect, init_db
 from app.ocr import decode_image, group_lines
 from app.pipeline import MessageIn, sources_for, store_message
@@ -16,6 +20,17 @@ from app.rules_api import router as rules_router
 DEFAULT_DB_PATH = os.environ.get("SECRETARY_DB_PATH", "data/secretary.db")
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_SEARCH_TOKENS = 20
+STATS_DAYS = 14
+DEFAULT_FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    ),
+}
 # The real OCR engine is not thread-safe, and endpoints run in a threadpool.
 OCR_LOCK = threading.Lock()
 
@@ -38,10 +53,27 @@ def stored_timestamp(value: datetime) -> str:
 
 def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
     init_db(db_path)
-    app = FastAPI(title="Secretary Messenger Monitor", version="0.1.0")
+    # No interactive docs or schema: they would be public routes, and the CSP blocks their CDN assets.
+    app = FastAPI(
+        title="Secretary Messenger Monitor",
+        version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.db_path = db_path
     app.state.ocr_engine = ocr_engine
-    app.include_router(rules_router)
+    app.state.login_limiter = LoginRateLimiter()
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers[name] = value
+        return response
+
+    app.include_router(auth_router)
+    app.include_router(rules_router, dependencies=[Depends(require_admin)])
 
     def get_engine():
         with OCR_LOCK:
@@ -59,7 +91,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
             conn.execute("SELECT 1")
         return {"status": "ok"}
 
-    @app.post("/messages", status_code=201)
+    @app.post("/messages", status_code=201, dependencies=[Depends(require_ingest)])
     def create_message(message: MessageIn, response: Response):
         with connect(app.state.db_path) as conn:
             row, match = store_message(conn, message)
@@ -67,7 +99,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
             response.status_code = 200
         return {**row, "duplicate": match is not None, "match": match}
 
-    @app.post("/ocr/screenshots")
+    @app.post("/ocr/screenshots", dependencies=[Depends(require_ingest)])
     def ocr_screenshot(
         file: UploadFile = File(...),
         chat_id: Optional[str] = Form(None, max_length=200),
@@ -107,7 +139,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
             "rejected": rejected,
         }
 
-    @app.get("/messages")
+    @app.get("/messages", dependencies=[Depends(require_admin)])
     def list_messages(
         limit: int = Query(default=50, ge=1, le=500),
         q: Optional[str] = Query(default=None, min_length=1, max_length=200),
@@ -165,7 +197,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
             for row in rows
         ]
 
-    @app.get("/messages/{message_id}/variants")
+    @app.get("/messages/{message_id}/variants", dependencies=[Depends(require_admin)])
     def list_variants(message_id: int):
         with connect(app.state.db_path) as conn:
             if conn.execute("SELECT 1 FROM messages WHERE id = ?", (message_id,)).fetchone() is None:
@@ -176,6 +208,62 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
                 (message_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    @app.get("/stats", dependencies=[Depends(require_admin)])
+    def stats():
+        today = datetime.now(timezone.utc).date()
+        days = [today - timedelta(days=offset) for offset in range(STATS_DAYS - 1, -1, -1)]
+        with connect(app.state.db_path) as conn:
+            total, latest = conn.execute("SELECT COUNT(*), MAX(created_at) FROM messages").fetchone()
+            by_source = {"clipboard": 0, "ocr": 0}
+            for row in conn.execute("SELECT source, COUNT(*) AS n FROM messages GROUP BY source"):
+                by_source[row["source"]] = row["n"]
+            by_category = [
+                {"category": row["category"], "count": row["n"]}
+                for row in conn.execute(
+                    "SELECT r.category AS category, COUNT(DISTINCT m.message_id) AS n "
+                    "FROM message_matches m JOIN rules r ON r.id = m.rule_id "
+                    "WHERE r.category IS NOT NULL GROUP BY r.category ORDER BY n DESC, r.category"
+                )
+            ]
+            per_day_counts = {
+                row["day"]: row["n"]
+                for row in conn.execute(
+                    "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM messages "
+                    "WHERE created_at >= ? GROUP BY day",
+                    (days[0].isoformat(),),
+                )
+            }
+            unread = conn.execute(
+                "SELECT COUNT(*) FROM notifications WHERE read_at IS NULL"
+            ).fetchone()[0]
+            enabled = conn.execute("SELECT COUNT(*) FROM rules WHERE enabled = 1").fetchone()[0]
+        return {
+            "total_messages": total,
+            "by_source": by_source,
+            "by_category": by_category,
+            "per_day": [
+                {"day": day.isoformat(), "count": per_day_counts.get(day.isoformat(), 0)}
+                for day in days
+            ],
+            "unread_notifications": unread,
+            "enabled_rules": enabled,
+            "latest_message_at": latest,
+        }
+
+    @app.get("/chats", dependencies=[Depends(require_admin)])
+    def list_chats():
+        with connect(app.state.db_path) as conn:
+            rows = conn.execute(
+                "SELECT chat_id, COUNT(*) AS count, MAX(created_at) AS latest_at FROM messages "
+                "GROUP BY chat_id ORDER BY latest_at DESC, MAX(id) DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    # Mounted last so every API route above wins over the static files.
+    dist = Path(os.environ.get("SECRETARY_FRONTEND_DIST") or DEFAULT_FRONTEND_DIST)
+    if dist.is_dir():
+        app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")
 
     return app
 

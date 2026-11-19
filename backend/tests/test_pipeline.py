@@ -1,15 +1,12 @@
 import sqlite3
 
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import create_app
 from app.pipeline import digits, match_key
 
 
 @pytest.fixture
-def client(tmp_path):
-    return TestClient(create_app(str(tmp_path / "test.db")))
+def client(tmp_path, make_client):
+    return make_client(str(tmp_path / "test.db"))
 
 
 def post(client, text, source="clipboard", confidence=None, **extra):
@@ -126,7 +123,7 @@ def test_variants_404_for_missing_message(client):
     assert client.get("/messages/999/variants").status_code == 404
 
 
-def test_migration_from_pre_sprint4_schema(tmp_path):
+def test_migration_from_pre_sprint4_schema(tmp_path, make_client):
     path = str(tmp_path / "old.db")
     conn = sqlite3.connect(path)
     conn.executescript(
@@ -151,7 +148,7 @@ def test_migration_from_pre_sprint4_schema(tmp_path):
     conn.commit()
     conn.close()
 
-    client = TestClient(create_app(path))
+    client = make_client(path)
     old = {row["id"]: row for row in rows(client)}
     assert old[1]["match_key"] == "meetatthecafeat6pmok"
     assert old[2]["match_key"] == "bringtheextrachairsplease"
@@ -168,15 +165,15 @@ def test_migration_from_pre_sprint4_schema(tmp_path):
     assert len(rows(client)) == 2
 
     # Starting again on the migrated database is harmless.
-    create_app(path)
-    assert len(rows(TestClient(create_app(path)))) == 2
+    make_client(path)
+    assert len(rows(make_client(path))) == 2
 
 
-def test_ocr_endpoint_returns_match_and_sources(tmp_path):
+def test_ocr_endpoint_returns_match_and_sources(tmp_path, make_client):
     from tests.test_ocr import FakeEngine, line, png
 
     engine = FakeEngine([line("Meet at the cafe at 6pm ok", 20, 100, 300, 120, conf=0.8)])
-    client = TestClient(create_app(str(tmp_path / "ocr.db"), ocr_engine=engine))
+    client = make_client(str(tmp_path / "ocr.db"), ocr_engine=engine)
     post(client, "Meet at the cafe at 6pm, ok?", chat_id="g")
     body = client.post(
         "/ocr/screenshots", files={"file": ("s.png", png(), "image/png")}, data={"chat_id": "g"}

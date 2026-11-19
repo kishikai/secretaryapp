@@ -1,6 +1,6 @@
 # Secretary Messenger Monitor
 
-Skeleton for a monitoring system that stores messages from authorised Messenger group chats. Messages arrive by clipboard or by OCR of screenshots. This milestone provides the backend, SQLite storage, a React admin view, tests and this guide.
+Skeleton for a monitoring system that stores messages from authorised Messenger group chats. Messages arrive by clipboard or by OCR of screenshots. The project provides the backend, SQLite storage, sign-in, a React dashboard, tests and this guide.
 
 Only process content you are authorised to see. The project does not automate Messenger through unsupported interfaces.
 
@@ -9,7 +9,7 @@ Only process content you are authorised to see. The project does not automate Me
 ```
 backend/    FastAPI app, SQLite storage, pytest tests
 collector/  Clipboard collector script (runs on your own desktop)
-frontend/   React + Vite admin view (proxies /api to the backend)
+frontend/   React + Vite dashboard (the backend serves its build)
 ```
 
 ## Backend
@@ -26,24 +26,35 @@ uvicorn app.main:app --reload
 
 The database is created at `backend/data/secretary.db`. Override it with `SECRETARY_DB_PATH`.
 
-Endpoints:
+Every endpoint except `/health` and the sign-in routes needs credentials. Before first use, create an admin account (see "Sign-in and security"):
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/health` | Liveness check, including a database query |
-| POST | `/messages` | Store one message (`message_text`, `source` = `clipboard` or `ocr`, optional `chat_id`, `sender`, `timestamp`, `confidence`) |
-| POST | `/ocr/screenshots` | Upload a Messenger screenshot (multipart `file`, optional `chat_id`); stores each detected message with `source` = `ocr` |
-| GET | `/messages` | List messages, newest first, each with its `sources` and `categories`; optional search and filters (see "Search and filters") |
-| GET | `/messages/{id}/variants` | Every extraction recorded for one message (`id`, `source`, `message_text`, `confidence`, `created_at`); 404 if the message does not exist |
-| POST | `/rules` | Create a rule (201); see "Rules and notifications" |
-| GET | `/rules` | List rules |
-| GET | `/rules/{id}` | One rule; 404 if missing |
-| PATCH | `/rules/{id}` | Change fields of a rule (merged and re-validated); does not recompute existing matches |
-| DELETE | `/rules/{id}` | Delete a rule with its matches and notifications (204) |
-| POST | `/rules/{id}/backfill` | Apply the rule to every stored message, without notifications; returns `{"rule_id", "matching_messages"}` |
-| GET | `/notifications` | Notifications, newest first (`unread`, `limit`, `before_id`) |
-| POST | `/notifications/{id}/read` | Mark one notification read (idempotent) |
-| POST | `/notifications/read-all` | Mark every unread notification read; returns `{"marked": n}` |
+```bash
+python -m app.admin create-user admin
+```
+
+Endpoints (Access: **public**, **admin** = signed-in session cookie, **ingest** = ingest token or admin session):
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/health` | public | Liveness check, including a database query |
+| POST | `/auth/login` | public | Sign in with `{"username", "password"}`; sets the session cookie. 401 for wrong credentials, 429 when rate-limited |
+| POST | `/auth/logout` | public | End the session and clear the cookie (204; fine when not signed in) |
+| GET | `/auth/me` | public | `{"username"}` of the signed-in admin, or 401 |
+| POST | `/messages` | ingest | Store one message (`message_text`, `source` = `clipboard` or `ocr`, optional `chat_id`, `sender`, `timestamp`, `confidence`) |
+| POST | `/ocr/screenshots` | ingest | Upload a Messenger screenshot (multipart `file`, optional `chat_id`); stores each detected message with `source` = `ocr` |
+| GET | `/messages` | admin | List messages, newest first, each with its `sources` and `categories`; optional search and filters (see "Search and filters") |
+| GET | `/messages/{id}/variants` | admin | Every extraction recorded for one message (`id`, `source`, `message_text`, `confidence`, `created_at`); 404 if the message does not exist |
+| POST | `/rules` | admin | Create a rule (201); see "Rules and notifications" |
+| GET | `/rules` | admin | List rules |
+| GET | `/rules/{id}` | admin | One rule; 404 if missing |
+| PATCH | `/rules/{id}` | admin | Change fields of a rule (merged and re-validated); does not recompute existing matches |
+| DELETE | `/rules/{id}` | admin | Delete a rule with its matches and notifications (204) |
+| POST | `/rules/{id}/backfill` | admin | Apply the rule to every stored message, without notifications; returns `{"rule_id", "matching_messages"}` |
+| GET | `/notifications` | admin | Notifications, newest first (`unread`, `limit`, `before_id`) |
+| POST | `/notifications/{id}/read` | admin | Mark one notification read (idempotent) |
+| POST | `/notifications/read-all` | admin | Mark every unread notification read; returns `{"marked": n}` |
+| GET | `/stats` | admin | Dashboard numbers: `total_messages`, `by_source` (`clipboard`, `ocr`), `by_category` (`category`, `count`; messages per category, highest first), `per_day` (the last 14 UTC days including today, oldest first, zero-filled), `unread_notifications`, `enabled_rules`, `latest_message_at` (or `null`) |
+| GET | `/chats` | admin | Every chat id (may be `null`) with its message `count` and `latest_at`, newest activity first |
 
 Run the tests:
 
@@ -51,6 +62,66 @@ Run the tests:
 cd backend
 python -m pytest -q
 ```
+
+## Sign-in and security
+
+Nothing is reachable without credentials except `GET /health`, the sign-in routes and the static dashboard files.
+
+**First run.** Create an admin account on the machine that runs the backend (a password of at least 12 characters; you are asked twice, and it is never shown):
+
+```bash
+cd backend
+python -m app.admin create-user admin
+```
+
+`--password-stdin` reads one line from standard input instead, for scripts. `python -m app.admin set-password USERNAME` changes a password and signs that admin out everywhere. All commands take `--db PATH` (default `SECRETARY_DB_PATH` or `data/secretary.db`) and report errors on stderr with exit code 1.
+
+**Roles.**
+
+| Credential | Can reach |
+|---|---|
+| none | `GET /health`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` (401 until signed in), the static dashboard |
+| ingest token (`Authorization: Bearer ...`) | only `POST /messages` and `POST /ocr/screenshots` |
+| admin session (cookie) | everything, including ingest |
+
+**Sessions.** `POST /auth/login` sets the cookie `secretary_session`: random, stored on the server only as a SHA-256 digest, valid for 12 hours from sign-in (it does not extend), `HttpOnly`, `SameSite=Strict`, `Path=/`. Passwords are stored as scrypt hashes (`scrypt$16384$8$1$salt$hash`). Behind HTTPS, set `SECRETARY_COOKIE_SECURE=1` so the cookie also gets the `Secure` flag (it is off by default so that `http://localhost` works).
+
+**Cross-site requests.** A request that is authenticated by the cookie and is not `GET`, `HEAD` or `OPTIONS` must send the header `X-Requested-With: secretary`, otherwise it gets 403. `POST /auth/login` and `/auth/logout` need it too. Bearer-token requests are exempt. There is no CORS: the dashboard is served from the same origin as the API.
+
+**Rate limit.** After 5 failed sign-ins for one client IP, or for one username (compared in lower case), further attempts get 429 with a `Retry-After` header (seconds) until the 15-minute sliding window has cleared. A successful sign-in clears that username's failures. The counters are in memory: they reset when the server restarts, and behind a reverse proxy every client shares the proxy's IP address, so the per-IP limit then applies to everyone together.
+
+**Ingest tokens** let the clipboard collector (or a script) store messages without an admin password. Create one per client:
+
+```bash
+cd backend
+python -m app.admin create-token my-desktop    # prints st_... once; it is not stored and cannot be shown again
+python -m app.admin list-tokens                # id, name, scope, created_at, last_used_at, revoked
+python -m app.admin revoke-token 1             # takes effect immediately
+```
+
+Only a SHA-256 digest of the token is stored. A revoked token is rejected with 401, and `last_used_at` shows whether a token is still in use, so revoke tokens that are lost or no longer needed. Give the token to the collector as described under "Clipboard collector".
+
+**Security headers.** Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a `Content-Security-Policy` that only allows the page's own scripts and styles. The interactive API docs (`/docs`, `/openapi.json`) are switched off because they would be public pages.
+
+**Serving the dashboard.** If `frontend/dist` exists (run `npm run build`), the backend serves it at `/`; set `SECRETARY_FRONTEND_DIST` to use another directory. API routes always take precedence. Without the directory only the API is served.
+
+**Using the API with curl.** Sign in once into a cookie jar, then send the cookie, and the `X-Requested-With` header on every request that changes data:
+
+```bash
+curl -c cookies.txt -H 'X-Requested-With: secretary' -H 'Content-Type: application/json' \
+  -d '{"username": "admin", "password": "your password"}' http://127.0.0.1:8000/auth/login
+curl -b cookies.txt http://127.0.0.1:8000/auth/me
+curl -b cookies.txt -H 'X-Requested-With: secretary' -X POST http://127.0.0.1:8000/auth/logout
+```
+
+An ingest script can use a Bearer token instead, with no cookie and no extra header:
+
+```bash
+curl -H "Authorization: Bearer $SECRETARY_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"message_text": "Meet at 6pm", "source": "clipboard", "chat_id": "my-group"}' http://127.0.0.1:8000/messages
+```
+
+The curl examples below use `-b cookies.txt`, plus the header on writes. Plain HTTP is fine on localhost; for any other access put the backend behind HTTPS (a reverse proxy) so passwords and cookies are not sent in clear text.
 
 ## Search and filters
 
@@ -71,8 +142,8 @@ python -m pytest -q
 Times compare against `created_at`, the moment the message was first stored (UTC). In a URL, write a `+` in an offset as `%2B`.
 
 ```bash
-curl "http://127.0.0.1:8000/messages?q=meeting&chat_id=my-group&source=clipboard&limit=20"
-curl "http://127.0.0.1:8000/messages?limit=20&before_id=120"   # next page
+curl -b cookies.txt "http://127.0.0.1:8000/messages?q=meeting&chat_id=my-group&source=clipboard&limit=20"
+curl -b cookies.txt "http://127.0.0.1:8000/messages?limit=20&before_id=120"   # next page
 ```
 
 ## Rules and notifications
@@ -107,20 +178,21 @@ Keywords are required for keyword rules and rejected for pattern rules; `pattern
 **Editing and deleting.** `PATCH /rules/{id}` takes any of the fields, merges them into the stored rule and validates the result. It does not recompute existing matches: run backfill afterwards. When you change `kind`, null out the other kind's field: `{"kind": "pattern", "pattern": "url", "keywords": null}`. Disabling a rule (`"enabled": false`) stops new matches and keeps its history. `DELETE /rules/{id}` removes the rule together with its matches and notifications; disable the rule instead if you want to keep them.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/rules -H 'Content-Type: application/json' \
+W='-b cookies.txt -H X-Requested-With:secretary'   # cookie jar from the sign-in above; the header is needed on writes
+curl $W -X POST http://127.0.0.1:8000/rules -H 'Content-Type: application/json' \
   -d '{"name": "Chairs", "kind": "keyword", "keywords": ["chairs", "tables"], "category": "setup", "notify": true}'
-curl -X POST http://127.0.0.1:8000/rules -H 'Content-Type: application/json' \
+curl $W -X POST http://127.0.0.1:8000/rules -H 'Content-Type: application/json' \
   -d '{"name": "Phone numbers", "kind": "pattern", "pattern": "phone", "category": "contact"}'
-curl -X POST http://127.0.0.1:8000/rules/1/backfill
-curl -X PATCH http://127.0.0.1:8000/rules/1 -H 'Content-Type: application/json' -d '{"enabled": false}'
-curl "http://127.0.0.1:8000/messages?category=setup"
-curl "http://127.0.0.1:8000/notifications?unread=true&limit=20"
-curl -X POST http://127.0.0.1:8000/notifications/3/read
-curl -X POST http://127.0.0.1:8000/notifications/read-all
-curl -X DELETE http://127.0.0.1:8000/rules/1
+curl $W -X POST http://127.0.0.1:8000/rules/1/backfill
+curl $W -X PATCH http://127.0.0.1:8000/rules/1 -H 'Content-Type: application/json' -d '{"enabled": false}'
+curl -b cookies.txt "http://127.0.0.1:8000/messages?category=setup"
+curl -b cookies.txt "http://127.0.0.1:8000/notifications?unread=true&limit=20"
+curl $W -X POST http://127.0.0.1:8000/notifications/3/read
+curl $W -X POST http://127.0.0.1:8000/notifications/read-all
+curl $W -X DELETE http://127.0.0.1:8000/rules/1
 ```
 
-There are deliberately no custom regular expressions (a pattern that takes exponential time could freeze the server), no outbound webhooks and no email: the API has no authentication yet, so anyone who can reach it could abuse them. They will be added after the Sprint 7 login.
+There are still deliberately no custom regular expressions (a pattern that takes exponential time could freeze the server), no outbound webhooks and no email. Sign-in now makes them possible; they are future work and need their own safeguards (a regex time limit, an allow-list for webhook targets, mail credentials kept out of the database).
 
 ## Backups
 
@@ -146,7 +218,7 @@ Daily at 02:00 with Windows Task Scheduler:
 schtasks /Create /SC DAILY /ST 02:00 /TN "SecretaryBackup" /TR "cmd /c cd /d C:\secretaryapp\backend && .venv\Scripts\python.exe -m app.backup --dir C:\secretaryapp\backups"
 ```
 
-There is deliberately no HTTP endpoint for backups: the API has no authentication yet. Backups contain every stored message, so keep the backup directory private and copy it off the machine as well.
+There is deliberately no HTTP endpoint for backups. Backups contain every stored message, and the password hashes and token digests, so keep the backup directory private and copy it off the machine as well.
 
 Restore:
 
@@ -177,7 +249,7 @@ When a message matches, no row is deleted. Clipboard text replaces OCR text (the
 `POST /ocr/screenshots` takes a Messenger screenshot (multipart `file`, up to 10 MB, plus an optional `chat_id`), runs OCR, groups the text lines into chat bubbles and stores each bubble as a message with `source` = `ocr` and the OCR confidence. Re-uploading the same screenshot does not add rows; those messages come back with `duplicate: true`, and text that was also copied from the clipboard is merged into the same message (see "How messages are merged"). The response lists the stored messages (with `side`, `left` or `right`), `skipped_lines` (centred text such as timestamps and system notices) and `rejected` (bubbles that failed validation).
 
 ```bash
-curl -F file=@shot.png -F chat_id=my-group http://127.0.0.1:8000/ocr/screenshots
+curl -H "Authorization: Bearer $SECRETARY_TOKEN" -F file=@shot.png -F chat_id=my-group http://127.0.0.1:8000/ocr/screenshots
 ```
 
 Crop screenshots to the conversation area first: the header and the input bar would be read as messages.
@@ -215,6 +287,8 @@ All changes are applied automatically on start-up; existing databases are migrat
 
 - v0.5 (Sprint 6): new tables `rules`, `message_matches` (unique per message and rule, index `idx_matches_rule`) and `notifications` (unique per rule and message, index `idx_notifications_unread (read_at, id)`). Created on start-up if missing; existing messages are not tagged until you run a rule's backfill.
 
+- v0.6 (Sprint 7): new tables `admins` (unique `username`, scrypt `password_hash`), `sessions` (primary key `token_hash`, a SHA-256 digest; `admin_id`, `expires_at`) and `api_tokens` (`name`, unique `token_hash`, `scope` limited to `ingest`, `created_at`, `last_used_at`, `revoked_at`). Created on start-up if missing; existing data is untouched, but the API now needs an admin (`python -m app.admin create-user`) before anything but `/health` can be used.
+
 ## Frontend
 
 Requires Node.js 22 or newer and the backend running on port 8000.
@@ -222,11 +296,13 @@ Requires Node.js 22 or newer and the backend running on port 8000.
 ```bash
 cd frontend
 npm install
-npm run dev      # http://localhost:5173, /api is proxied to the backend
+npm run dev      # http://localhost:5173, API paths are proxied to the backend
 npm run build    # production build in dist/
 ```
 
-Set `BACKEND_URL` to point the dev proxy at a different backend.
+Set `BACKEND_URL` to point the dev proxy at a different backend. Sign in with the account from `python -m app.admin create-user`. After `npm run build`, the backend itself serves the dashboard at `http://127.0.0.1:8000/` (see "Sign-in and security"), so no separate web server is needed.
+
+The dashboard has four tabs: Overview (status, totals, messages per day, categories), Messages (search, filters, message details with every extraction, screenshot upload), Notifications (unread badge, mark read) and Rules (create, enable or disable, notify, backfill, delete).
 
 ## Clipboard collector
 
@@ -237,12 +313,17 @@ cd collector
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+export SECRETARY_TOKEN=st_...        # an ingest token, see below
 python clipboard_collector.py --api-url http://127.0.0.1:8000 --chat-id my-group --interval 1.0
 ```
 
-All options are optional; defaults are `http://127.0.0.1:8000` and 1 second. Press Ctrl+C to stop. Text already on the clipboard when the script starts is not sent. If the backend is unreachable or returns a 5xx error, the same text is retried on the next poll; a 4xx rejection (for example text over 10,000 characters) is logged and not retried.
+All options are optional; defaults are `http://127.0.0.1:8000` and 1 second. Press Ctrl+C to stop.
 
-It only sends text that you copy, and it does not log message contents (only length, id and duplicate flag). **While it runs, everything you copy is sent**, so stop it before copying passwords or other private text. There is no authentication yet, so only point it at a backend you trust.
+**Token.** The collector sends `Authorization: Bearer <token>` with every message. Create the token on the backend machine with `python -m app.admin create-token my-desktop` (it is printed once), then give it to the collector in the environment variable `SECRETARY_TOKEN` or in a file with `--token-file PATH` (the first line is used; keep the file readable only by you). There is deliberately no `--token` argument, because command lines end up in shell history and process lists. Without a token the collector exits with an error (code 2). Use `https://` for any backend that is not on your own machine, or the token travels in clear text.
+
+**Errors.** If the backend answers 401 or 403, the token is wrong, revoked or lacks access: the collector logs "token rejected; check SECRETARY_TOKEN", exits with code 2 and does not treat that text as sent. If the backend is unreachable or returns a 5xx error, the same text is retried on the next poll; any other 4xx rejection (for example text over 10,000 characters) is logged and not retried. Text already on the clipboard when the script starts is not sent.
+
+It only sends text that you copy, and it does not log message contents (only length, id and duplicate flag). **While it runs, everything you copy is sent**, so stop it before copying passwords or other private text. The token only allows storing messages, but only point the collector at a backend you trust, since it receives everything you copy.
 
 Run the tests (no clipboard or `pyperclip` needed):
 
@@ -260,4 +341,5 @@ python -m pytest -q
 - Sprint 4: one pipeline for clipboard and OCR that merges the same message across sources (exact, normalised and fuzzy matching), keeps every extraction in `message_variants`, and migrates existing databases.
 - Sprint 5: full-text search and list filters on `GET /messages` (`q`, `chat_id`, `sender`, `source`, `since`, `until`, `before_id`), and database backups with retention (`python -m app.backup`).
 - Sprint 6: automation engine: keyword and predefined-pattern rules, categories, in-app notifications, backfill (`/rules`, `/notifications`, `category` filter on `GET /messages`).
-- Not yet included: sender names and timestamps (clipboard and OCR), authentication, Docker, custom regexes, webhooks and email, a frontend for rules and notifications.
+- Sprint 7: sign-in (admin accounts with scrypt passwords, 12-hour session cookies, CSRF header, login rate limit), ingest tokens for the collector, every route protected (checked by a route-audit test), security headers, `GET /stats` and `GET /chats`, an admin CLI (`python -m app.admin`), and the dashboard served by the backend.
+- Not yet included: sender names and timestamps (clipboard and OCR), Docker, and, as possible future work now that sign-in exists, custom regexes, webhooks and email.

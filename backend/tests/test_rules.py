@@ -2,9 +2,6 @@ import sqlite3
 import time
 
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import create_app
 from app.rules import PATTERNS, find_pattern, words
 
 
@@ -14,8 +11,8 @@ def db_path(tmp_path):
 
 
 @pytest.fixture
-def client(db_path):
-    return TestClient(create_app(db_path))
+def client(db_path, make_client):
+    return make_client(db_path)
 
 
 def post(client, text, source="clipboard", confidence=None, **extra):
@@ -447,7 +444,7 @@ CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages BEGIN
 """
 
 
-def test_v04_database_migrates_and_backfills(db_path):
+def test_v04_database_migrates_and_backfills(db_path, make_client):
     with sqlite3.connect(db_path) as conn:
         conn.executescript(V04_SCHEMA)
         conn.execute(
@@ -458,8 +455,8 @@ def test_v04_database_migrates_and_backfills(db_path):
             "INSERT INTO messages (message_text, source, content_hash, match_key) "
             "VALUES ('Unrelated', 'ocr', 'h2', 'unrelated')"
         )
-    client = TestClient(create_app(db_path))
-    client = TestClient(create_app(db_path))  # starting twice is harmless
+    make_client(db_path)
+    client = make_client(db_path)  # starting twice is harmless
     rule = keyword_rule(client, "chairs", notify=True, category="setup")
     assert client.post(f"/rules/{rule['id']}/backfill").json()["matching_messages"] == 1
     old = {m["message_text"]: m["categories"] for m in client.get("/messages").json()}

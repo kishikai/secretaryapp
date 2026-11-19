@@ -3,9 +3,7 @@ import sys
 import cv2
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
 
-from app.main import create_app
 from app.ocr import OcrLine, decode_image, group_lines
 
 W = 400
@@ -98,8 +96,8 @@ LINES = [
 
 
 @pytest.fixture
-def client(tmp_path):
-    return TestClient(create_app(str(tmp_path / "t.db"), ocr_engine=FakeEngine(LINES)))
+def client(tmp_path, make_client):
+    return make_client(str(tmp_path / "t.db"), ocr_engine=FakeEngine(LINES))
 
 
 def upload(client, data=None, **form):
@@ -148,9 +146,9 @@ def test_too_large_is_413(client):
     assert upload(client, data=b"\0" * (10 * 1024 * 1024 + 1)).status_code == 413
 
 
-def test_engine_missing_is_503(tmp_path, monkeypatch):
+def test_engine_missing_is_503(tmp_path, monkeypatch, make_client):
     monkeypatch.setitem(sys.modules, "app.ocr_paddle", None)
-    client = TestClient(create_app(str(tmp_path / "t.db"), ocr_engine=None))
+    client = make_client(str(tmp_path / "t.db"), ocr_engine=None)
     response = upload(client)
     assert response.status_code == 503
     assert response.json()["detail"] == "OCR engine not installed; see README"

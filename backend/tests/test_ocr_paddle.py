@@ -2,12 +2,10 @@
 import io
 
 import pytest
-from fastapi.testclient import TestClient
 
 pytest.importorskip("paddleocr")
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402  (Pillow comes with PaddleOCR)
 
-from app.main import create_app  # noqa: E402
 
 
 def dark_bubble_png() -> bytes:
@@ -22,8 +20,8 @@ def dark_bubble_png() -> bytes:
     return buffer.getvalue()
 
 
-def test_real_engine_reads_one_bubble(tmp_path):
-    client = TestClient(create_app(str(tmp_path / "ocr.db")))
+def test_real_engine_reads_one_bubble(tmp_path, make_client):
+    client = make_client(str(tmp_path / "ocr.db"))
     response = client.post("/ocr/screenshots", files={"file": ("shot.png", dark_bubble_png(), "image/png")})
     assert response.status_code == 200
     [message] = response.json()["messages"]

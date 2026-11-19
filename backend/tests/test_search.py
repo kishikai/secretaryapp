@@ -1,9 +1,6 @@
 import sqlite3
 
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import create_app
 
 
 @pytest.fixture
@@ -12,8 +9,8 @@ def db_path(tmp_path):
 
 
 @pytest.fixture
-def client(db_path):
-    return TestClient(create_app(db_path))
+def client(db_path, make_client):
+    return make_client(db_path)
 
 
 def post(client, text, source="clipboard", confidence=None, **extra):
@@ -231,7 +228,7 @@ CREATE INDEX idx_messages_chat_match ON messages (chat_id, match_key);
 """
 
 
-def test_v03_database_is_migrated_and_searchable(db_path):
+def test_v03_database_is_migrated_and_searchable(db_path, make_client):
     with sqlite3.connect(db_path) as conn:
         conn.executescript(V03_SCHEMA)
         conn.execute(
@@ -242,13 +239,13 @@ def test_v03_database_is_migrated_and_searchable(db_path):
             "INSERT INTO messages (message_text, source, content_hash, match_key) "
             "VALUES ('Another old note', 'ocr', 'h2', 'anotheroldnote')"
         )
-    client = TestClient(create_app(db_path))
+    client = make_client(db_path)
     assert search(client, "cafe") == ["Old café meeting"]
     assert search(client, "old") == ["Another old note", "Old café meeting"]
     post(client, "brand new message")
     assert search(client, "brand") == ["brand new message"]
     # Starting again must not duplicate index entries.
-    client = TestClient(create_app(db_path))
+    client = make_client(db_path)
     assert search(client, "old") == ["Another old note", "Old café meeting"]
     with sqlite3.connect(db_path) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}

@@ -74,6 +74,30 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications (read_at, id);
 """
 
+AUTH_SCHEMA = """
+CREATE TABLE IF NOT EXISTS admins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,      -- SHA-256 of the cookie value
+    admin_id INTEGER NOT NULL REFERENCES admins(id),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,  -- SHA-256 of the token
+    scope TEXT NOT NULL CHECK (scope IN ('ingest')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_used_at TEXT,
+    revoked_at TEXT
+);
+"""
+
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
 
@@ -121,3 +145,5 @@ def init_db(db_path: str) -> None:
         conn.executescript(FTS_SCHEMA if had_fts else FTS_SCHEMA + FTS_REBUILD)
         # Migration for databases created before rules and notifications (v0.5).
         conn.executescript(RULES_SCHEMA)
+        # Migration for databases created before authentication (v0.6).
+        conn.executescript(AUTH_SCHEMA)

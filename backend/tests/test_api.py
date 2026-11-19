@@ -1,12 +1,9 @@
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import create_app
 
 
 @pytest.fixture
-def client(tmp_path):
-    return TestClient(create_app(str(tmp_path / "test.db")))
+def client(tmp_path, make_client):
+    return make_client(str(tmp_path / "test.db"))
 
 
 def test_health_reports_ok(client):
@@ -81,7 +78,7 @@ def test_same_text_in_another_chat_is_kept(client):
     assert len(client.get("/messages").json()) == 2
 
 
-def test_v010_database_is_migrated(tmp_path):
+def test_v010_database_is_migrated(tmp_path, make_client):
     import sqlite3
 
     db_path = str(tmp_path / "old.db")
@@ -92,6 +89,6 @@ def test_v010_database_is_migrated(tmp_path):
             " confidence REAL, created_at TEXT NOT NULL DEFAULT 'x')"
         )
         conn.execute("INSERT INTO messages (message_text, source) VALUES ('old row', 'ocr')")
-    client = TestClient(create_app(db_path))
+    client = make_client(db_path)
     assert client.post("/messages", json={"message_text": "new", "source": "clipboard"}).status_code == 201
     assert [m["message_text"] for m in client.get("/messages").json()] == ["new", "old row"]
