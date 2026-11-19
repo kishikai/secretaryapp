@@ -1,0 +1,4 @@
+# Optional OCR engine (about 1.2 GB). Install on top of requirements.txt.
+# It pins opencv-contrib-python 4.10.0.84 and numpy 2.3.5, matching requirements.txt.
+paddlepaddle==3.3.1
+paddleocr==3.7.0

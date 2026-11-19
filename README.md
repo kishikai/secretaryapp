@@ -1,6 +1,6 @@
 # Secretary Messenger Monitor
 
-Skeleton for a monitoring system that stores messages from authorised Messenger group chats. Messages arrive by clipboard or OCR (OCR comes in a later sprint). This milestone provides the backend, SQLite storage, a React admin view, tests and this guide.
+Skeleton for a monitoring system that stores messages from authorised Messenger group chats. Messages arrive by clipboard or by OCR of screenshots. This milestone provides the backend, SQLite storage, a React admin view, tests and this guide.
 
 Only process content you are authorised to see. The project does not automate Messenger through unsupported interfaces.
 
@@ -32,6 +32,7 @@ Endpoints:
 |---|---|---|
 | GET | `/health` | Liveness check, including a database query |
 | POST | `/messages` | Store one message (`message_text`, `source` = `clipboard` or `ocr`, optional `chat_id`, `sender`, `timestamp`, `confidence`) |
+| POST | `/ocr/screenshots` | Upload a Messenger screenshot (multipart `file`, optional `chat_id`); stores each detected message with `source` = `ocr` |
 | GET | `/messages?limit=50` | List the newest messages (limit 1–500) |
 
 Run the tests:
@@ -40,6 +41,29 @@ Run the tests:
 cd backend
 python -m pytest -q
 ```
+
+## OCR screenshots
+
+`POST /ocr/screenshots` takes a Messenger screenshot (multipart `file`, up to 10 MB, plus an optional `chat_id`), runs OCR, groups the text lines into chat bubbles and stores each bubble as a message with `source` = `ocr` and the OCR confidence. Re-uploading the same screenshot does not add rows; those messages come back with `duplicate: true`. The response lists the stored messages (with `side`, `left` or `right`), `skipped_lines` (centred text such as timestamps and system notices) and `rejected` (bubbles that failed validation).
+
+```bash
+curl -F file=@shot.png -F chat_id=my-group http://127.0.0.1:8000/ocr/screenshots
+```
+
+Crop screenshots to the conversation area first: the header and the input bar would be read as messages.
+
+The OCR engine (PaddleOCR) is an optional heavy install, about 1.2 GB, and it downloads its models on first use:
+
+```bash
+cd backend
+pip install -r requirements-ocr.txt
+```
+
+Without it the endpoint returns 503 ("OCR engine not installed; see README"). Models download from Hugging Face by default; if that is blocked, set `PADDLE_PDX_MODEL_SOURCE=bos` to use Paddle's own host (`paddle-model-ecology.bj.bcebos.com`). On CPU a screenshot takes about 2–4 seconds.
+
+Lines are grouped by the bubble they sit in: the bubble's background colour is traced with OpenCV, so a message with blank lines stays one message, and a blank line inside a bubble comes back as `\n\n`. This works in light and dark mode. Text without a bubble falls back to line spacing. Sender names and timestamps are not extracted yet.
+
+The real-engine test (`tests/test_ocr_paddle.py`) runs only when the OCR install is present.
 
 ## Frontend
 
@@ -82,4 +106,5 @@ python -m pytest -q
 
 - Sprint 1 foundation: backend, database connection, starter endpoints, frontend, tests.
 - Included: clipboard collector, text normalisation and duplicate detection.
-- Not yet included: timestamps from the clipboard, authentication, Docker, OCR extraction, rules and notifications.
+- Sprint 3: OCR of screenshots into stored messages (`POST /ocr/screenshots`, pluggable engine, PaddleOCR optional).
+- Not yet included: sender names and timestamps (clipboard and OCR), authentication, Docker, rules and notifications.
