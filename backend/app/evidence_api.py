@@ -20,10 +20,10 @@ router = APIRouter(dependencies=[Depends(require_secretary)])
 SCANNED_MESSAGES = 2000  # shortcut: only the newest messages are scanned for the queue; add paging if it matters
 LISTED = 200
 EVENT_WINDOW = (-1, 7)  # days around the message's date where its event may fall
-# First match wins, so "sorry, running late" is late rather than excused.
+# First match wins, so "sorry, running late" is late rather than an excused absence.
 STATUS_HINTS = (
     ("late", ("running late", "be late", "bit late", "minutes late", "late today", "late tonight", "stuck in traffic")),
-    ("excused", ("apolog", "can't make", "cant make", "cannot make", "can't come", "cant come", "won't make",
+    ("absent_excused", ("apolog", "can't make", "cant make", "cannot make", "can't come", "cant come", "won't make",
                  "wont make", "won't be able", "unable to", "not able to", "unwell", "sick", "poorly")),
     ("present", ("i'm here", "im here", "i am here", "just arrived", "i've arrived")),
 )
@@ -35,7 +35,7 @@ class ApproveIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     member_id: int
     event_id: int
-    status: Literal["present", "late", "absent", "excused"]
+    status: Literal["present", "late", "late_excused", "absent", "absent_excused"]
     note: Optional[str] = Field(default=None, max_length=500)
 
     @field_validator("note", mode="before")

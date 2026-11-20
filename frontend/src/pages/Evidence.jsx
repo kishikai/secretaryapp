@@ -10,8 +10,9 @@ const FILTERS = [
 const STATUSES = [
   { id: "present", label: "Present" },
   { id: "late", label: "Late" },
+  { id: "late_excused", label: "Late (excused)" },
   { id: "absent", label: "Absent" },
-  { id: "excused", label: "Excused" },
+  { id: "absent_excused", label: "Absent (excused)" },
 ];
 const STATUS_LABELS = { not_recorded: "Not recorded", ...Object.fromEntries(STATUSES.map((s) => [s.id, s.label])) };
 const statusLabel = (s) => STATUS_LABELS[s] ?? "Not recorded";

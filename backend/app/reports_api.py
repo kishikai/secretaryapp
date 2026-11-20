@@ -1,7 +1,7 @@
 """Absence figures (decision D9), member attendance history and the secretary's dashboard.
 
 D9: only finalised registers of events that weren't cancelled count. Absence rate =
-absent / (present + late + absent); excused is shown but not in the rate.
+absent / (present + late + late excused + absent); absent (excused) is shown but not in the rate.
 """
 from datetime import date, timedelta
 from typing import Optional
@@ -14,22 +14,23 @@ from app.events_api import check_day
 
 router = APIRouter(dependencies=[Depends(require_user)])
 
+RECORDED = ("present", "late", "late_excused", "absent", "absent_excused")
 COUNTED = "e.finalized_at IS NOT NULL AND e.status <> 'cancelled'"
 STATUS_SUMS = (
     "COUNT(*) AS events, "
-    + ", ".join(f"COALESCE(SUM(a.status = '{s}'), 0) AS {s}" for s in ("present", "late", "absent", "excused"))
+    + ", ".join(f"COALESCE(SUM(a.status = '{s}'), 0) AS {s}" for s in RECORDED)
 )
 DASHBOARD_DAYS = 90
 
 
-def rate(present: int, late: int, absent: int) -> Optional[float]:
-    attended_or_absent = present + late + absent
-    return round(absent / attended_or_absent, 4) if attended_or_absent else None
+def rate(counts: dict) -> Optional[float]:
+    attended_or_absent = counts["present"] + counts["late"] + counts["late_excused"] + counts["absent"]
+    return round(counts["absent"] / attended_or_absent, 4) if attended_or_absent else None
 
 
 def with_rate(row) -> dict:
     out = dict(row)
-    out["absence_rate"] = rate(out["present"], out["late"], out["absent"])
+    out["absence_rate"] = rate(out)
     return out
 
 
@@ -91,8 +92,8 @@ def member_attendance(member_id: int, request: Request):
         ).fetchall()
     rows = [{**dict(r), "finalized": bool(r["finalized"]), "counted": bool(r["counted"])} for r in rows]
     counted = [r["status"] for r in rows if r["counted"]]
-    summary = {"events": len(counted), **{s: counted.count(s) for s in ("present", "late", "absent", "excused")}}
-    summary["absence_rate"] = rate(summary["present"], summary["late"], summary["absent"])
+    summary = {"events": len(counted), **{s: counted.count(s) for s in RECORDED}}
+    summary["absence_rate"] = rate(summary)
     return {"member": {**dict(member), "active": bool(member["active"])}, "summary": summary, "rows": rows}
 
 

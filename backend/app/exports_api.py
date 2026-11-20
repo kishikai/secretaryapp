@@ -11,14 +11,14 @@ from app.auth import require_user
 from app.db import connect
 from app.events_api import Status, check_day, find_events, get_event
 from app.members_api import find_members
-from app.reports_api import absence_rows, member_attendance, rate
+from app.reports_api import RECORDED, absence_rows, member_attendance, rate
 
 router = APIRouter(prefix="/exports", dependencies=[Depends(require_user)])
 
 STATUS_LABELS = {"not_recorded": "Not recorded", "present": "Present", "late": "Late",
-                 "absent": "Absent", "excused": "Excused"}
+                 "late_excused": "Late (excused)", "absent": "Absent", "absent_excused": "Absent (excused)"}
 RULE = ("Counts only finalised registers of events that weren't cancelled. "
-        "Absence rate = absent / (present + late + absent); excused isn't counted.")
+        "Absence rate = absent / (present + late + late excused + absent); absent (excused) isn't counted.")
 
 
 def cell(value) -> str:
@@ -107,7 +107,6 @@ def events_csv(
     date_to: Optional[str] = Query(default=None, max_length=10),
 ):
     date_from, date_to = check_day(date_from, "date_from"), check_day(date_to, "date_to")
-    statuses = list(STATUS_LABELS)
     with connect(request.app.state.db_path) as conn:
         events = find_events(conn, q, status, category, date_from, date_to)
         counts = {}
@@ -120,12 +119,12 @@ def events_csv(
         rows.append([e["starts_at"].replace("T", " "), (e["ends_at"] or "").replace("T", " "), e["name"],
                      e["location"], e["category"], e["status"].capitalize(),
                      "Finalised" if e["id"] in finalized else "Not finalised", e["expected_count"],
-                     *[c.get(s, 0) for s in statuses[1:]], c.get("not_recorded", 0)])
-    totals = ["Total", "", count(len(rows), "event"), "", "", "", "", *[sum(r[i] for r in rows) for i in range(7, 13)]]
+                     *[c.get(s, 0) for s in RECORDED], c.get("not_recorded", 0)])
+    totals = ["Total", "", count(len(rows), "event"), "", "", "", "", *[sum(r[i] for r in rows) for i in range(7, 14)]]
     about = [("Search", q or "None"), ("Status", status.capitalize() if status else "All"),
              ("Category", category or "All"), ("Period", period(date_from, date_to))]
     header = ["Starts", "Ends", "Event", "Location", "Category", "Status", "Register", "Expected",
-              "Present", "Late", "Absent", "Excused", "Not recorded"]
+              *[STATUS_LABELS[s] for s in RECORDED], "Not recorded"]
     return csv_file("events.csv", "Event summary", about, header, rows, totals)
 
 
@@ -160,12 +159,12 @@ def absences_csv(
         about = [("Period", period(date_from, date_to)), ("Group", group_name(conn, group_id)),
                  ("Show", shown(active)), ("Rule", RULE)]
         found = absence_rows(conn, date_from, date_to, group_id, active)
-    keys = ("events", "present", "late", "absent", "excused")
+    keys = ("events", *RECORDED)
     rows = [[r["full_name"], "Yes" if r["active"] else "No", *[r[k] for k in keys], percent(r["absence_rate"])]
             for r in found]
     sums = {k: sum(r[k] for r in found) for k in keys}
-    totals = ["Total", count(len(found), "member"), *sums.values(), percent(rate(sums["present"], sums["late"], sums["absent"]))]
-    header = ["Name", "Active", "Events counted", "Present", "Late", "Absent", "Excused", "Absence rate"]
+    totals = ["Total", count(len(found), "member"), *sums.values(), percent(rate(sums))]
+    header = ["Name", "Active", "Events counted", *[STATUS_LABELS[s] for s in RECORDED], "Absence rate"]
     return csv_file("absences.csv", "Absence report", about, header, rows, totals)
 
 

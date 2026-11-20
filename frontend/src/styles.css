@@ -1014,3 +1014,15 @@ tr.not-counted td {
   font-weight: 700;
   text-decoration: none;
 }
+
+/* Excused attendance statuses (reuse the late and excused colour tokens) */
+.chip.st-late_excused,
+.seg.on.st-late_excused span {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.chip.st-absent_excused,
+.seg.on.st-absent_excused span {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

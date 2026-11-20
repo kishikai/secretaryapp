@@ -51,19 +51,19 @@ def test_queue_suggests_but_changes_nothing(world):
     assert any("running late" in why for why in late["why"])
     # "Ben" matches two members by first name, so no one is guessed; the status still is.
     excused = items[ids["excused"]]["suggestion"]
-    assert excused["member_id"] is None and excused["status"] == "excused"
+    assert excused["member_id"] is None and excused["status"] == "absent_excused"
     assert register(client, people["event"]) == {"Ada Lovelace": "not_recorded", "Ben Jones": "not_recorded"}
 
 
 def test_approve_updates_the_register_with_an_audited_link_to_the_message(world):
     client, people, ids = world
-    body = {"member_id": people["ben"], "event_id": people["event"], "status": "excused", "note": "Told me by text"}
+    body = {"member_id": people["ben"], "event_id": people["event"], "status": "absent_excused", "note": "Told me by text"}
     item = client.post(f"/evidence/{ids['excused']}/approve", json=body).json()
     assert item["state"] == "approved" and item["review"]["member_name"] == "Ben Jones"
     assert item["review"]["reviewed_by"] == "secretary"
-    assert register(client, people["event"])["Ben Jones"] == "excused"
+    assert register(client, people["event"])["Ben Jones"] == "absent_excused"
     [entry] = client.get(f"/events/{people['event']}/audit").json()
-    assert (entry["evidence_id"], entry["reason"], entry["new_status"]) == (ids["excused"], "Told me by text", "excused")
+    assert (entry["evidence_id"], entry["reason"], entry["new_status"]) == (ids["excused"], "Told me by text", "absent_excused")
     assert ids["excused"] not in queue(client) and ids["excused"] in queue(client, "approved")
     again = client.post(f"/evidence/{ids['excused']}/approve", json=body)
     assert again.status_code == 409
@@ -84,7 +84,7 @@ def test_a_finalised_register_is_never_changed_by_evidence(world):
     client.put(f"/events/{people['event']}/attendance", json={"records": [
         {"member_id": people["ada"], "status": "present"}, {"member_id": people["ben"], "status": "absent"}]})
     assert client.post(f"/events/{people['event']}/finalize").status_code == 200
-    body = {"member_id": people["ben"], "event_id": people["event"], "status": "excused"}
+    body = {"member_id": people["ben"], "event_id": people["event"], "status": "absent_excused"}
     response = client.post(f"/evidence/{ids['excused']}/approve", json=body)
     assert response.status_code == 409 and "reopen" in response.json()["detail"]
     assert register(client, people["event"])["Ben Jones"] == "absent"

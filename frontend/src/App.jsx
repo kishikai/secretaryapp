@@ -11,10 +11,9 @@ import Events from "./pages/Events.jsx";
 import Absences from "./pages/Absences.jsx";
 import Evidence from "./pages/Evidence.jsx";
 import Announcements from "./pages/Announcements.jsx";
+import { HIDDEN_TABS, MESSAGES_ENABLED } from "./features.js";
 
 // secretaryOnly tabs call endpoints that answer 403 to other roles; editorOnly tabs are hidden from viewers.
-// Tabs switched off for this deployment. Remove an id to bring its tab back; the features stay in the app.
-const HIDDEN_TABS = ["announcements", "messages", "notifications", "rules"];
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -65,7 +64,7 @@ function Shell({ user, onSignOut }) {
 
   useEffect(() => {
     // /stats is secretary-only, and the count is only shown on the Notifications tab.
-    if (!isSecretary || HIDDEN_TABS.includes("notifications")) return undefined;
+    if (!isSecretary || !MESSAGES_ENABLED || HIDDEN_TABS.includes("notifications")) return undefined;
     refreshUnread();
     const id = setInterval(() => {
       if (!document.hidden) refreshUnread();
@@ -75,7 +74,7 @@ function Shell({ user, onSignOut }) {
 
   // Offline only when at least one collector exists and none has checked in recently.
   useEffect(() => {
-    if (!isSecretary) return undefined; // /collector/status is secretary-only
+    if (!isSecretary || !MESSAGES_ENABLED) return undefined; // /collector/status is secretary-only
     let cancelled = false;
     const check = async () => {
       try {
@@ -133,7 +132,7 @@ function Shell({ user, onSignOut }) {
           </div>
         </div>
       </header>
-      {isSecretary && collectorOffline && (
+      {isSecretary && MESSAGES_ENABLED && collectorOffline && (
         <div className="collector-notice" role="status">
           <p>
             The message collector is offline. Attendance still works — you can take registers by hand. <a href="#overview">See details</a>

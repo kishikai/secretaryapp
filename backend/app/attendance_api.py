@@ -12,7 +12,7 @@ from app.members_api import blank_to_none, require_editor, require_secretary
 
 router = APIRouter()
 
-Status = Literal["not_recorded", "present", "late", "absent", "excused"]
+Status = Literal["not_recorded", "present", "late", "late_excused", "absent", "absent_excused"]
 NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
 
 

@@ -3,7 +3,13 @@ import { api } from "../api.js";
 import { errorText, formatEventWhen, formatRate } from "../format.js";
 import { StatusChip } from "./eventUi.jsx";
 
-const STATUS = { present: "Present", late: "Late", absent: "Absent", excused: "Excused" };
+const STATUS = {
+  present: "Present",
+  late: "Late",
+  late_excused: "Late (excused)",
+  absent: "Absent",
+  absent_excused: "Absent (excused)",
+};
 
 export default function MemberHistory({ id }) {
   const headRef = useRef(null);
@@ -57,7 +63,7 @@ export default function MemberHistory({ id }) {
       </div>
       <p className="rule">
         Attendance history. Totals count only finalised registers of events that weren't cancelled. Absence rate =
-        absent ÷ (present + late + absent); excused isn't counted.
+        absent ÷ (present + late + late excused + absent); absent (excused) isn't counted.
       </p>
       <div className="toolbar">
         <a className="button" href={`/exports/members/${encodeURIComponent(member.id)}/attendance.csv`} download>
@@ -78,12 +84,16 @@ export default function MemberHistory({ id }) {
           <div className="tile-value num">{summary.late}</div>
         </div>
         <div className="tile">
+          <div className="tile-label">Late (excused)</div>
+          <div className="tile-value num">{summary.late_excused}</div>
+        </div>
+        <div className="tile">
           <div className="tile-label">Absent</div>
           <div className="tile-value num">{summary.absent}</div>
         </div>
         <div className="tile">
-          <div className="tile-label">Excused</div>
-          <div className="tile-value num">{summary.excused}</div>
+          <div className="tile-label">Absent (excused)</div>
+          <div className="tile-value num">{summary.absent_excused}</div>
         </div>
         <div className="tile">
           <div className="tile-label">Absence rate</div>

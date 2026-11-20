@@ -2,16 +2,18 @@ import { useEffect, useId, useState } from "react";
 import { api } from "../api.js";
 import { errorText, formatTime, plural } from "../format.js";
 
-const STATUSES = ["present", "late", "absent", "excused", "not_recorded"];
+const STATUSES = ["present", "late", "late_excused", "absent", "absent_excused", "not_recorded"];
 const LABELS = {
   not_recorded: "Not recorded",
   present: "Present",
   late: "Late",
+  late_excused: "Late (excused)",
   absent: "Absent",
-  excused: "Excused",
+  absent_excused: "Absent (excused)",
 };
-const COUNT_ORDER = ["present", "late", "absent", "excused", "not_recorded"];
-const label = (s) => LABELS[s] ?? "Not recorded";
+const COUNT_ORDER = STATUSES;
+// "excused" was retired; the change history may still contain it.
+const label = (s) => (s === "excused" ? "Excused" : (LABELS[s] ?? "Not recorded"));
 
 function auditText(a) {
   if (a.action === "finalize") return "Register finalised";

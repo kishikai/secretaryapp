@@ -47,10 +47,10 @@ def test_every_change_is_audited_and_unchanged_rows_are_not(secretary, register)
         secretary.put(f"/events/{event_id}/attendance",
                       json={"records": [{"member_id": ann, "status": status}], "reason": "  "})
     secretary.put(f"/events/{event_id}/attendance",
-                  json={"records": [{"member_id": bob, "status": "excused"}], "reason": "Sent apologies"})
+                  json={"records": [{"member_id": bob, "status": "absent_excused"}], "reason": "Sent apologies"})
     trail = secretary.get(f"/events/{event_id}/audit").json()
     assert [(t["full_name"], t["old_status"], t["new_status"], t["reason"]) for t in trail] == [
-        ("Bob", "not_recorded", "excused", "Sent apologies"),
+        ("Bob", "not_recorded", "absent_excused", "Sent apologies"),
         ("Ann", "present", "absent", None),
         ("Ann", "not_recorded", "present", None),
     ]
@@ -147,3 +147,26 @@ def test_upgrade_adds_attendance_to_existing_event_lists(db_path):
         assert conn.execute("SELECT finalized_at FROM events").fetchone() == (None,)
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute("UPDATE event_attendees SET status = 'asleep'")
+
+
+def test_upgrade_turns_old_excused_into_absent_excused(db_path):
+    """A database from before late/absent excused keeps its records, with 'excused' meaning absent (excused)."""
+    from app.db import ATTENDANCE_SCHEMA, AUTH_SCHEMA, EVIDENCE_SCHEMA, SCHEMA
+    old_check = "CHECK (status IN ('not_recorded', 'present', 'late', 'absent', 'excused'))"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(SCHEMA + AUTH_SCHEMA + MEMBERS_SCHEMA + EVENTS_SCHEMA)
+        conn.execute(f"ALTER TABLE event_attendees ADD COLUMN status TEXT NOT NULL DEFAULT 'not_recorded' {old_check}")
+        conn.execute("ALTER TABLE event_attendees ADD COLUMN recorded_at TEXT")
+        conn.execute("ALTER TABLE event_attendees ADD COLUMN recorded_by INTEGER")
+        conn.executescript(ATTENDANCE_SCHEMA + EVIDENCE_SCHEMA.replace("'late_excused', 'absent', 'absent_excused'", "'absent', 'excused'"))
+        conn.execute("INSERT INTO members (full_name) VALUES ('Ann'), ('Bob')")
+        conn.execute("INSERT INTO events (name, starts_at, status) VALUES ('Old', '2025-01-01T10:00', 'completed')")
+        conn.execute("INSERT INTO event_attendees (event_id, member_id, status) VALUES (1, 1, 'excused'), (1, 2, 'present')")
+    init_db(db_path)
+    init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT member_id, status FROM event_attendees ORDER BY member_id").fetchall() == [
+            (1, "absent_excused"), (2, "present")]
+        conn.execute("UPDATE event_attendees SET status = 'late_excused' WHERE member_id = 2")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("UPDATE event_attendees SET status = 'excused'")

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { errorText, formatDay, formatEventWhen, formatRate, plural } from "../format.js";
 import CollectionStatus from "./CollectionStatus.jsx";
+import { MESSAGES_ENABLED } from "../features.js";
 
 function Tile({ label, value }) {
   return (
@@ -166,13 +167,14 @@ export default function Overview({ role }) {
             <h2 id="ov-absences">Absences in the last 90 days</h2>
             <p className="muted">
               {abs.date_from && abs.date_to ? `${formatDay(abs.date_from)} to ${formatDay(abs.date_to)}. ` : ""}
-              Counts only finalised registers.
+              Counts only finalised registers of events that weren't cancelled. Absence rate = absent ÷ (present + late + late excused + absent); absent (excused) isn't counted.
             </p>
             <div className="meta">
               <span className="num">Present {abs.present}</span>
               <span className="num">Late {abs.late}</span>
+              <span className="num">Late (excused) {abs.late_excused}</span>
               <span className="num">Absent {abs.absent}</span>
-              <span className="num">Excused {abs.excused}</span>
+              <span className="num">Absent (excused) {abs.absent_excused}</span>
               <span className="num">
                 <strong>Absence rate {formatRate(abs.absence_rate)}</strong>
               </span>
@@ -199,14 +201,14 @@ export default function Overview({ role }) {
             </p>
           </section>
 
-          {role === "secretary" && (
+          {role === "secretary" && MESSAGES_ENABLED && (
             <div className="section-gap">
               <CollectionStatus />
             </div>
           )}
         </>
       )}
-      {role === "secretary" && !data && error && (
+      {role === "secretary" && MESSAGES_ENABLED && !data && error && (
         <div className="section-gap">
           <CollectionStatus />
         </div>

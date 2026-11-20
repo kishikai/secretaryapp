@@ -33,8 +33,8 @@ export default function Absences() {
     <>
       <h1>Absences</h1>
       <p className="rule">
-        Counts only finalised registers of events that weren't cancelled. Absence rate = absent ÷ (present + late +
-        absent); excused isn't counted.
+        Counts only finalised registers of events that weren't cancelled. Absence rate = absent ÷ (present + late + late
+        excused + absent); absent (excused) isn't counted.
       </p>
       <div className="toolbar">
         <a className="button" href={`/exports/absences.csv${query({ date_from: dateFrom, date_to: dateTo, group_id: group, active })}`} download>
@@ -93,8 +93,9 @@ export default function Absences() {
                 <th scope="col" className="num">Events counted</th>
                 <th scope="col" className="num">Present</th>
                 <th scope="col" className="num">Late</th>
+                <th scope="col" className="num">Late (excused)</th>
                 <th scope="col" className="num">Absent</th>
-                <th scope="col" className="num">Excused</th>
+                <th scope="col" className="num">Absent (excused)</th>
                 <th scope="col" className="num">Absence rate</th>
               </tr>
             </thead>
@@ -108,8 +109,9 @@ export default function Absences() {
                   <td className="num">{r.events}</td>
                   <td className="num">{r.present}</td>
                   <td className="num">{r.late}</td>
+                  <td className="num">{r.late_excused}</td>
                   <td className="num">{r.absent}</td>
-                  <td className="num">{r.excused}</td>
+                  <td className="num">{r.absent_excused}</td>
                   <td className="num">{formatRate(r.absence_rate)}</td>
                 </tr>
               ))}

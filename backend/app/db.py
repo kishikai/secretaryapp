@@ -156,7 +156,7 @@ CREATE INDEX IF NOT EXISTS idx_event_attendees_member ON event_attendees (member
 ATTENDANCE_COLUMNS = {
     "event_attendees": {
         "status": "TEXT NOT NULL DEFAULT 'not_recorded' "
-        "CHECK (status IN ('not_recorded', 'present', 'late', 'absent', 'excused'))",
+        "CHECK (status IN ('not_recorded', 'present', 'late', 'late_excused', 'absent', 'absent_excused'))",
         "recorded_at": "TEXT",
         "recorded_by": "INTEGER REFERENCES admins(id)",
     },
@@ -193,13 +193,57 @@ CREATE TABLE IF NOT EXISTS evidence_reviews (
     message_text TEXT NOT NULL,  -- the text as reviewed; a message's text can be upgraded later
     member_id INTEGER REFERENCES members(id),
     event_id INTEGER REFERENCES events(id),
-    status TEXT CHECK (status IN ('present', 'late', 'absent', 'excused')),
+    status TEXT CHECK (status IN ('present', 'late', 'late_excused', 'absent', 'absent_excused')),
     note TEXT,
     reviewer_id INTEGER REFERENCES admins(id),
     reviewer TEXT NOT NULL,
     reviewed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 """
+
+# v0.14: "excused" became "late_excused" and "absent_excused". SQLite can't change a CHECK, so
+# these tables are rebuilt once; an old "excused" (notice of absence) becomes "absent_excused".
+STATUS_REBUILDS = {
+    "event_attendees": """
+CREATE TABLE event_attendees_v14 (
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    member_id INTEGER NOT NULL REFERENCES members(id),
+    added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    status TEXT NOT NULL DEFAULT 'not_recorded'
+        CHECK (status IN ('not_recorded', 'present', 'late', 'late_excused', 'absent', 'absent_excused')),
+    recorded_at TEXT,
+    recorded_by INTEGER REFERENCES admins(id),
+    PRIMARY KEY (event_id, member_id)
+);
+INSERT INTO event_attendees_v14 (event_id, member_id, added_at, status, recorded_at, recorded_by)
+    SELECT event_id, member_id, added_at,
+           CASE status WHEN 'excused' THEN 'absent_excused' ELSE status END, recorded_at, recorded_by
+    FROM event_attendees;
+DROP TABLE event_attendees;
+ALTER TABLE event_attendees_v14 RENAME TO event_attendees;
+CREATE INDEX IF NOT EXISTS idx_event_attendees_member ON event_attendees (member_id);
+""",
+    "evidence_reviews": """
+CREATE TABLE evidence_reviews_v14 (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id),
+    state TEXT NOT NULL CHECK (state IN ('approved', 'rejected')),
+    message_text TEXT NOT NULL,
+    member_id INTEGER REFERENCES members(id),
+    event_id INTEGER REFERENCES events(id),
+    status TEXT CHECK (status IN ('present', 'late', 'late_excused', 'absent', 'absent_excused')),
+    note TEXT,
+    reviewer_id INTEGER REFERENCES admins(id),
+    reviewer TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+INSERT INTO evidence_reviews_v14
+    SELECT message_id, state, message_text, member_id, event_id,
+           CASE status WHEN 'excused' THEN 'absent_excused' ELSE status END, note, reviewer_id, reviewer, reviewed_at
+    FROM evidence_reviews;
+DROP TABLE evidence_reviews;
+ALTER TABLE evidence_reviews_v14 RENAME TO evidence_reviews;
+""",
+}
 
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
@@ -280,3 +324,7 @@ def init_db(db_path: str) -> None:
         if "evidence_id" not in {row["name"] for row in conn.execute("PRAGMA table_info(attendance_audit)")}:
             conn.execute("ALTER TABLE attendance_audit ADD COLUMN evidence_id INTEGER REFERENCES messages(id)")
         conn.executescript(EVIDENCE_SCHEMA)
+        for table, rebuild in STATUS_REBUILDS.items():
+            sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = ?", (table,)).fetchone()[0]
+            if "absent_excused" not in sql:
+                conn.executescript("BEGIN;" + rebuild + "COMMIT;")
