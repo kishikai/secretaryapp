@@ -280,6 +280,7 @@ def test_every_non_public_route_requires_credentials(anon, app):
     audited = []
     for method, path in audited_routes(app):
         url = path.replace("{message_id}", "1").replace("{rule_id}", "1").replace("{notification_id}", "1")
+        url = url.replace("{member_id}", "1").replace("{group_id}", "1")
         assert "{" not in url, f"give {path} a dummy value in this audit"
         kwargs = {} if method == "GET" else {"json": {}}
         response = anon.request(method, url, **kwargs)

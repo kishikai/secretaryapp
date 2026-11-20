@@ -100,6 +100,35 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 """
 
+MEMBERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT,
+    member_code TEXT UNIQUE,  -- optional external ID
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    joined_on TEXT,           -- YYYY-MM-DD
+    left_on TEXT,             -- YYYY-MM-DD
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_members_full_name ON members (full_name);
+CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE TABLE IF NOT EXISTS member_groups (
+    member_id INTEGER NOT NULL REFERENCES members(id),
+    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (member_id, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_member_groups_group ON member_groups (group_id);
+"""
+
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
 
@@ -166,3 +195,5 @@ def init_db(db_path: str) -> None:
                 "ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'secretary' "
                 "CHECK (role IN ('secretary', 'assistant', 'viewer'))"
             )
+        # v0.9 (Phase 1): members and groups.
+        conn.executescript(MEMBERS_SCHEMA)

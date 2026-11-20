@@ -146,7 +146,7 @@ export default function MemberImport({ onCancel, onDone }) {
                         <td>{row.data.full_name}</td>
                         <td>{row.data.email}</td>
                         <td>{row.data.phone}</td>
-                        <td>{row.data.groups}</td>
+                        <td>{[].concat(row.data.groups ?? []).join("; ")}</td>
                         <td>
                           {row.errors.map((er) => (
                             <div key={er} className="cell-error">

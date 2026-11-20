@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.auth import LoginRateLimiter, require_admin, require_ingest
 from app.auth_api import router as auth_router
 from app.db import connect, init_db
+from app.members_api import router as members_router
 from app.ocr import decode_image, group_lines
 from app.pipeline import MessageIn, sources_for, store_message
 from app.rules import categories_for
@@ -74,6 +75,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(rules_router, dependencies=[Depends(require_admin)])
+    app.include_router(members_router)  # each route declares its own role
 
     def get_engine():
         with OCR_LOCK:

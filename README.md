@@ -194,6 +194,23 @@ curl $W -X DELETE http://127.0.0.1:8000/rules/1
 
 There are still deliberately no custom regular expressions (a pattern that takes exponential time could freeze the server), no outbound webhooks and no email. Sign-in now makes them possible; they are future work and need their own safeguards (a regex time limit, an allow-list for webhook targets, mail credentials kept out of the database).
 
+## Members and groups
+
+Roles: anyone signed in can read; the secretary and the assistant can add and edit; only the secretary can deactivate a member, delete a group or import. Members are never deleted. Group names are unique (case-insensitive) and `member_code` is unique when set.
+
+| Method | Path | Role | Purpose |
+|---|---|---|---|
+| GET | `/members` | any | List members (max 1000, by name). Filters: `q` (substring of name, email, phone or code), `group_id`, `active` (`true`/`false`). Each member has `group_ids` |
+| POST | `/members` | secretary, assistant | Create (201). Fields: `full_name` (required), `email`, `phone`, `member_code`, `notes`, `joined_on`, `left_on` (`YYYY-MM-DD`), `active` |
+| GET / PATCH | `/members/{id}` | any / secretary, assistant | Read, or change any field; changing `active` needs the secretary (403 otherwise) |
+| PUT | `/members/{id}/groups` | secretary, assistant | Replace the member's groups: `{"group_ids": [1, 2]}` |
+| GET / POST | `/groups` | any / secretary, assistant | List (with `member_count`) or create (`name`, `description`) |
+| PATCH / DELETE | `/groups/{id}` | secretary, assistant / secretary | Edit; delete a group (204, memberships only) |
+| POST | `/members/import/preview` | secretary | Upload a CSV (multipart field `file`, max 10 MB, 5000 rows); writes nothing. Returns per-row `data`, `errors` and `duplicates` |
+| POST | `/members/import/confirm` | secretary | `{"rows": [{"data": {...}, "action": "create" \| "update" \| "skip", "member_id": 3}]}`; re-validated, all-or-nothing. Returns `{created, updated, skipped}` |
+
+CSV columns (headers are case-insensitive, spaces count as underscores, other columns are ignored): `full_name` (or `name`; required), `email`, `phone`, `member_code`, `notes`, `joined_on`, `left_on`, `groups` (names separated by `;`; unknown groups are created and members are added to them). Save from Excel as "CSV UTF-8". A row is a duplicate candidate when `member_code` or email matches, or the phone digits (at least 7) or the full name match, against existing members or earlier rows in the same file. An `update` only fills fields that are not empty in the row.
+
 ## Backups
 
 `backend/app/backup.py` takes a consistent copy of the database using SQLite's online backup, so it is safe while the server is running. Uncommitted writes are not included. The copy is written to a temporary `.partial` file, checked with `PRAGMA integrity_check`, and only then renamed to `secretary-YYYYMMDDTHHMMSS-ffffffZ.db` (UTC). Afterwards only the newest `--keep` files named `secretary-*.db` in the backup directory are kept; other files are never touched.
@@ -290,6 +307,8 @@ All changes are applied automatically on start-up; existing databases are migrat
 - v0.6 (Sprint 7): new tables `admins` (unique `username`, scrypt `password_hash`), `sessions` (primary key `token_hash`, a SHA-256 digest; `admin_id`, `expires_at`) and `api_tokens` (`name`, unique `token_hash`, `scope` limited to `ingest`, `created_at`, `last_used_at`, `revoked_at`). Created on start-up if missing; existing data is untouched, but the API now needs an admin (`python -m app.admin create-user`) before anything but `/health` can be used.
 
 - v0.7 (Sprint 8): foreign keys are enforced on every connection (`PRAGMA foreign_keys = ON`), and connections are always closed. New index `idx_messages_source (source)`; `idx_matches_rule` is replaced by the covering index `idx_matches_rule_message (rule_id, message_id)`. Both serve `/stats`.
+
+- v0.9 (Phase 1): new tables `members` (unique optional `member_code`), `groups` (unique `name`, case-insensitive) and `member_groups`. Created on start-up if missing.
 
 ## Frontend
 
