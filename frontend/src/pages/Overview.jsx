@@ -4,13 +4,14 @@ import { errorText, formatDay, formatEventWhen, formatRate, plural } from "../fo
 import CollectionStatus from "./CollectionStatus.jsx";
 import { MESSAGES_ENABLED } from "../features.js";
 
-function Tile({ label, value }) {
-  return (
-    <div className="tile">
-      <div className="tile-label">{label}</div>
-      <div className="tile-value num">{value}</div>
-    </div>
+function Stat({ label, value, href, lead }) {
+  const inner = (
+    <>
+      <span className="v num">{value}</span>
+      <span className="k">{label}</span>
+    </>
   );
+  return <li className={lead ? "is-lead" : undefined}>{href ? <a className="stat-link" href={href}>{inner}</a> : inner}</li>;
 }
 
 const DISMISS_KEY = "secretary.gettingStartedDismissed";
@@ -64,8 +65,13 @@ function GettingStarted({ data, role }) {
   };
 
   return (
-    <section className="card" aria-labelledby="ov-start">
-      <h2 id="ov-start">Getting started</h2>
+    <section className="card ov-start" aria-labelledby="ov-start">
+      <div className="card-head">
+        <h2 id="ov-start">Getting started</h2>
+        <button type="button" className="text-button" onClick={hide}>
+          Hide this
+        </button>
+      </div>
       <ul className="checklist">
         {steps.map((st) => (
           <li key={st.text} className={st.done ? "done" : undefined}>
@@ -80,9 +86,6 @@ function GettingStarted({ data, role }) {
           </li>
         ))}
       </ul>
-      <button type="button" onClick={hide}>
-        Hide this
-      </button>
     </section>
   );
 }
@@ -105,7 +108,9 @@ export default function Overview({ role }) {
 
   return (
     <>
-      <h1>Overview</h1>
+      <div className="page-head">
+        <h1>Overview</h1>
+      </div>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -115,88 +120,123 @@ export default function Overview({ role }) {
       {data && (
         <>
           {role !== "viewer" && <GettingStarted data={data} role={role} />}
-          <div className="tiles">
-            <Tile label="Active members" value={data.members.active} />
-            <Tile label="Groups" value={data.groups} />
-            <Tile label="Upcoming events" value={data.upcoming_count} />
-            <Tile label="Registers to finish" value={data.registers_to_finish.length} />
+          <ul className="stat-strip ov-stats">
+            <Stat label="Active members" value={data.members.active} href="#members" />
+            <Stat label="Groups" value={data.groups} href="#groups" />
+            <Stat label="Upcoming events" value={data.upcoming_count} href="#events" />
+            <Stat label="Registers to finish" value={data.registers_to_finish.length} />
+          </ul>
+
+          <div className="ov-grid">
+            <section className="card" aria-labelledby="ov-finish">
+              <h2 id="ov-finish">Needs doing</h2>
+              {data.registers_to_finish.length === 0 ? (
+                <p className="muted">All registers are finalised.</p>
+              ) : (
+                <ul className="rows ov-rows">
+                  {data.registers_to_finish.map((ev) => (
+                    <li key={ev.id} className="row">
+                      <div className="row-main">
+                        <div className="row-title">
+                          <a href={`#events?id=${ev.id}`}>{ev.name}</a>
+                        </div>
+                        <div className="row-sub">
+                          <span>{formatEventWhen(ev.starts_at, ev.ends_at)}</span>
+                        </div>
+                      </div>
+                      <div className="row-side">
+                        <span className="num ov-count">{ev.not_recorded} not recorded</span>
+                      </div>
+                      <div className="row-actions-inline">
+                        <a className="button small primary" href={`#events?id=${ev.id}`}>
+                          Finish register<span className="sr-only"> for {ev.name}</span>
+                        </a>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="card" aria-labelledby="ov-upcoming">
+              <h2 id="ov-upcoming">Next up</h2>
+              {data.upcoming_events.length === 0 ? (
+                <p className="muted">No upcoming events.</p>
+              ) : (
+                <ul className="rows ov-rows">
+                  {data.upcoming_events.map((ev) => (
+                    <li key={ev.id} className="row">
+                      <div className="row-main">
+                        <div className="row-title">
+                          <a href={`#events?id=${ev.id}`}>{ev.name}</a>
+                        </div>
+                        <div className="row-sub">
+                          <span>{formatEventWhen(ev.starts_at, ev.ends_at)}</span>
+                        </div>
+                      </div>
+                      <div className="row-side">
+                        <span className="num ov-count">{ev.expected_count} expected</span>
+                      </div>
+                      <div className="row-actions-inline">
+                        <a className="button small" href={`#events?id=${ev.id}`}>
+                          Open<span className="sr-only"> {ev.name}</span>
+                        </a>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="ov-more">
+                <a href="#events">See all events</a>
+              </p>
+            </section>
           </div>
 
-          <section className="card" aria-labelledby="ov-finish">
-            <h2 id="ov-finish">Registers to finish</h2>
-            {data.registers_to_finish.length === 0 ? (
-              <p className="muted">All registers are finalised.</p>
-            ) : (
-              <ul className="rows-list">
-                {data.registers_to_finish.map((ev) => (
-                  <li key={ev.id}>
-                    <span className="grow">
-                      <a href={`#events?id=${ev.id}`}>{ev.name}</a>
-                      <span className="sub">{formatEventWhen(ev.starts_at, ev.ends_at)}</span>
-                    </span>
-                    <span className="num">{ev.not_recorded} not recorded</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="card" aria-labelledby="ov-upcoming">
-            <h2 id="ov-upcoming">Upcoming events</h2>
-            {data.upcoming_events.length === 0 ? (
-              <p className="muted">No upcoming events.</p>
-            ) : (
-              <ul className="rows-list">
-                {data.upcoming_events.map((ev) => (
-                  <li key={ev.id}>
-                    <span className="grow">
-                      <a href={`#events?id=${ev.id}`}>{ev.name}</a>
-                      <span className="sub">{formatEventWhen(ev.starts_at, ev.ends_at)}</span>
-                    </span>
-                    <span className="num">{ev.expected_count} expected</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p>
-              <a href="#events">See all events</a>
-            </p>
-          </section>
-
           <section className="card" aria-labelledby="ov-absences">
-            <h2 id="ov-absences">Absences in the last 90 days</h2>
-            <p className="muted">
-              {abs.date_from && abs.date_to ? `${formatDay(abs.date_from)} to ${formatDay(abs.date_to)}. ` : ""}
-              Counts only finalised registers of events that weren't cancelled. Absence rate = absent ÷ (present + late + late excused + absent); absent (excused) isn't counted.
-            </p>
-            <div className="meta">
-              <span className="num">Present {abs.present}</span>
-              <span className="num">Late {abs.late}</span>
-              <span className="num">Late (excused) {abs.late_excused}</span>
-              <span className="num">Absent {abs.absent}</span>
-              <span className="num">Absent (excused) {abs.absent_excused}</span>
-              <span className="num">
-                <strong>Absence rate {formatRate(abs.absence_rate)}</strong>
-              </span>
+            <div className="card-head">
+              <h2 id="ov-absences">Absences, last 90 days</h2>
+              {abs.date_from && abs.date_to && (
+                <span className="muted">
+                  {formatDay(abs.date_from)} to {formatDay(abs.date_to)}
+                </span>
+              )}
             </div>
+            <ul className="stat-strip abs-stats">
+              <Stat lead label="Absence rate" value={formatRate(abs.absence_rate)} />
+              <Stat label="Present" value={abs.present} />
+              <Stat label="Late" value={abs.late} />
+              <Stat label="Late (excused)" value={abs.late_excused} />
+              <Stat label="Absent" value={abs.absent} />
+              <Stat label="Absent (excused)" value={abs.absent_excused} />
+            </ul>
+            <details className="explain">
+              <summary>How is this worked out?</summary>
+              <p>
+                Counts only finalised registers of events that weren't cancelled. Absence rate = absent ÷ (present + late + late excused + absent); absent (excused) isn't counted.
+              </p>
+            </details>
             <h3>Most absences</h3>
             {data.most_absent.length === 0 ? (
               <p className="muted">No absences recorded in this period.</p>
             ) : (
-              <ul className="rows-list">
+              <ul className="rows ov-rows">
                 {data.most_absent.map((m) => (
-                  <li key={m.member_id}>
-                    <span className="grow">
-                      <a href={`#members?id=${m.member_id}`}>{m.full_name}</a>
-                      {!m.active && <span className="chip"> Inactive</span>}
-                    </span>
-                    <span className="num">{plural(m.absent, "absence", "absences")}</span>
-                    <span className="num">{formatRate(m.absence_rate)}</span>
+                  <li key={m.member_id} className="row">
+                    <div className="row-main">
+                      <div className="row-title">
+                        <a href={`#members?id=${m.member_id}`}>{m.full_name}</a>
+                      </div>
+                    </div>
+                    <div className="row-side">
+                      {!m.active && <span className="chip">Inactive</span>}
+                      <span className="num ov-count">{plural(m.absent, "absence", "absences")}</span>
+                      <span className="num ov-rate">{formatRate(m.absence_rate)}</span>
+                    </div>
                   </li>
                 ))}
               </ul>
             )}
-            <p>
+            <p className="ov-more">
               <a href="#absences">See all absences</a>
             </p>
           </section>

@@ -31,7 +31,7 @@ export default function MemberHistory({ id }) {
   }, [data === null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const back = (
-    <p>
+    <p className="back-link">
       <a href="#members">← All members</a>
     </p>
   );
@@ -55,62 +55,56 @@ export default function MemberHistory({ id }) {
   return (
     <>
       {back}
-      <div className="item-head">
-        <h1 tabIndex={-1} ref={headRef} style={{ margin: 0 }}>
-          {member.full_name}
-        </h1>
-        {!member.active && <span className="chip">Inactive</span>}
-      </div>
-      <p className="rule">
-        Attendance history. Totals count only finalised registers of events that weren't cancelled. Absence rate =
-        absent ÷ (present + late + late excused + absent); absent (excused) isn't counted.
-      </p>
-      <div className="toolbar">
-        <a className="button" href={`/exports/members/${encodeURIComponent(member.id)}/attendance.csv`} download>
-          Download history
-        </a>
-      </div>
-      <div className="tiles">
-        <div className="tile">
-          <div className="tile-label">Events counted</div>
-          <div className="tile-value num">{summary.events}</div>
+      <div className="page-head">
+        <div className="head-title">
+          <h1 tabIndex={-1} ref={headRef}>
+            {member.full_name}
+          </h1>
+          {!member.active && <span className="chip">Inactive</span>}
         </div>
-        <div className="tile">
-          <div className="tile-label">Present</div>
-          <div className="tile-value num">{summary.present}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-label">Late</div>
-          <div className="tile-value num">{summary.late}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-label">Late (excused)</div>
-          <div className="tile-value num">{summary.late_excused}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-label">Absent</div>
-          <div className="tile-value num">{summary.absent}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-label">Absent (excused)</div>
-          <div className="tile-value num">{summary.absent_excused}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-label">Absence rate</div>
-          <div className="tile-value num">{formatRate(summary.absence_rate)}</div>
+        <div className="actions">
+          <a className="button small" href={`/exports/members/${encodeURIComponent(member.id)}/attendance.csv`} download>
+            Download history (CSV)
+          </a>
         </div>
       </div>
+      <ul className="stat-strip abs-stats">
+        <li className="is-lead">
+          <span className="v num">{formatRate(summary.absence_rate)}</span>
+          <span className="k">Absence rate</span>
+        </li>
+        {[
+          ["Events counted", summary.events],
+          ["Present", summary.present],
+          ["Late", summary.late],
+          ["Late (excused)", summary.late_excused],
+          ["Absent", summary.absent],
+          ["Absent (excused)", summary.absent_excused],
+        ].map(([label, value]) => (
+          <li key={label}>
+            <span className="v num">{value}</span>
+            <span className="k">{label}</span>
+          </li>
+        ))}
+      </ul>
+      <details className="explain">
+        <summary>How is this worked out?</summary>
+        <p>
+          Attendance history. Totals count only finalised registers of events that weren't cancelled. Absence rate =
+          absent ÷ (present + late + late excused + absent); absent (excused) isn't counted.
+        </p>
+      </details>
 
       <h2>Events they were expected at</h2>
       {rows.length === 0 ? (
         <p className="empty">This member hasn't been expected at any events yet.</p>
       ) : (
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table history-table">
             <thead>
               <tr>
-                <th scope="col">When</th>
                 <th scope="col">Event</th>
+                <th scope="col">When</th>
                 <th scope="col">Event status</th>
                 <th scope="col">Register</th>
                 <th scope="col">Their status</th>
@@ -119,10 +113,10 @@ export default function MemberHistory({ id }) {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.event_id} className={r.counted ? undefined : "not-counted"}>
-                  <td>{formatEventWhen(r.starts_at, r.ends_at)}</td>
                   <th scope="row">
                     <a href={`#events?id=${r.event_id}`}>{r.name}</a>
                   </th>
+                  <td className="when">{formatEventWhen(r.starts_at, r.ends_at)}</td>
                   <td>
                     <StatusChip status={r.event_status} />
                   </td>

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { api, isAbort, query } from "../api.js";
 import { errorText, plural } from "../format.js";
 
-function GroupForm({ group, onSaved, onCancel }) {
+function GroupForm({ group, onSaved, onCancel, autoFocus }) {
   const id = useId();
   const [name, setName] = useState(group?.name ?? "");
   const [description, setDescription] = useState(group?.description ?? "");
@@ -22,7 +22,7 @@ function GroupForm({ group, onSaved, onCancel }) {
         setName("");
         setDescription("");
       }
-      onSaved();
+      onSaved(body.name);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -36,7 +36,7 @@ function GroupForm({ group, onSaved, onCancel }) {
       <div className="form-grid">
         <div className="field">
           <label htmlFor={`${id}-name`}>Name</label>
-          <input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} required />
+          <input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} required autoFocus={autoFocus} autoCapitalize="words" />
         </div>
         <div className="field">
           <label htmlFor={`${id}-desc`}>Description (optional)</label>
@@ -152,7 +152,7 @@ function MembersPanel({ group, canEdit, onChanged, onClose }) {
   };
 
   return (
-    <div className="card" role="group" aria-label={`Members of ${group.name}`}>
+    <div className="card members-panel" role="group" aria-label={`Members of ${group.name}`}>
       <h3>Members of {group.name}</h3>
       {members && members.length === 0 && <p className="empty">No one is in this group yet.</p>}
       {!members && !error && <p className="muted">Loading…</p>}
@@ -198,7 +198,7 @@ function MembersPanel({ group, canEdit, onChanged, onClose }) {
           </p>
           <div className="field">
             <label htmlFor={`${id}-q`}>Search members</label>
-            <input id={`${id}-q`} type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, email, phone or code" />
+            <input id={`${id}-q`} type="search" enterKeyHint="search" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, email, phone or code" />
           </div>
           {searchError && (
             <p role="alert" className="error">
@@ -250,6 +250,7 @@ function GroupRow({ group, canEdit, canDelete, onChanged }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const toggleRef = useRef(null);
 
   const remove = async () => {
     setBusy(true);
@@ -267,9 +268,10 @@ function GroupRow({ group, canEdit, canDelete, onChanged }) {
 
   if (editing) {
     return (
-      <li>
+      <li className="row row-form">
         <GroupForm
           group={group}
+          autoFocus
           onCancel={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
@@ -281,22 +283,26 @@ function GroupRow({ group, canEdit, canDelete, onChanged }) {
   }
 
   return (
-    <li className="card item">
-      <div className="item-head">
-        <h2>{group.name}</h2>
-        <a href={`#members?group=${group.id}`}>
+    <li className="row">
+      <div className="row-main">
+        <div className="row-title">{group.name}</div>
+        {group.description && (
+          <div className="row-sub">
+            <span>{group.description}</span>
+          </div>
+        )}
+      </div>
+      <div className="row-side">
+        <a className="group-count" href={`#members?group=${group.id}`}>
           {plural(group.member_count, "member", "members")}
           <span className="sr-only"> in {group.name}</span>
         </a>
       </div>
-      {group.description && <p className="text">{group.description}</p>}
-      <div className="row-actions">
-        {!managing && (
-          <button type="button" className="small" onClick={() => setManaging(true)}>
-            {canEdit ? "Manage members" : "View members"}
-            <span className="sr-only"> of {group.name}</span>
-          </button>
-        )}
+      <div className="row-actions-inline">
+        <button type="button" className="small" ref={toggleRef} aria-expanded={managing} onClick={() => setManaging((m) => !m)}>
+          {canEdit ? "Members" : "View"}
+          <span className="sr-only"> of {group.name}</span>
+        </button>
         {canEdit && (
           <button type="button" className="small" onClick={() => setEditing(true)}>
             Edit<span className="sr-only"> {group.name}</span>
@@ -318,14 +324,24 @@ function GroupRow({ group, canEdit, canDelete, onChanged }) {
             </button>
           ))}
       </div>
-      {managing && <MembersPanel group={group} canEdit={canEdit} onChanged={onChanged} onClose={() => setManaging(false)} />}
+      {managing && (
+        <MembersPanel
+          group={group}
+          canEdit={canEdit}
+          onChanged={onChanged}
+          onClose={() => {
+            setManaging(false);
+            setTimeout(() => toggleRef.current?.focus(), 0);
+          }}
+        />
+      )}
       {confirming && (
-        <p role="status" className="muted">
+        <p role="status" className="muted row-note">
           Delete the group {group.name}? The members stay in the system; they just leave this group.
         </p>
       )}
       {err && (
-        <p role="alert" className="error">
+        <p role="alert" className="error row-note">
           {err}
         </p>
       )}
@@ -336,8 +352,11 @@ function GroupRow({ group, canEdit, canDelete, onChanged }) {
 export default function Groups({ role }) {
   const [groups, setGroups] = useState(null);
   const [error, setError] = useState("");
+  const [formOpen, setFormOpen] = useState(null); // null = automatic (open while there are no groups)
+  const [notice, setNotice] = useState("");
   const canEdit = role === "secretary" || role === "assistant";
   const canDelete = role === "secretary";
+  const showForm = canEdit && (formOpen ?? (groups !== null && groups.length === 0));
 
   const load = useCallback(() => {
     api("/groups")
@@ -352,8 +371,43 @@ export default function Groups({ role }) {
 
   return (
     <>
-      <h1>Groups</h1>
-      {canEdit && <GroupForm onSaved={load} />}
+      <div className="page-head">
+        <h1>Groups</h1>
+        {canEdit && (
+          <div className="actions">
+            <button
+              type="button"
+              className="primary"
+              aria-expanded={showForm}
+              aria-controls="new-group-form"
+              onClick={() => {
+                setNotice("");
+                setFormOpen(!showForm);
+              }}
+            >
+              New group
+            </button>
+          </div>
+        )}
+      </div>
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
+      {showForm && (
+        <div id="new-group-form">
+          <GroupForm
+            autoFocus={formOpen === true}
+            onCancel={() => setFormOpen(false)}
+            onSaved={(name) => {
+              setFormOpen(false);
+              setNotice(`Added ${name}.`);
+              load();
+            }}
+          />
+        </div>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -361,11 +415,13 @@ export default function Groups({ role }) {
       )}
       {!groups && !error && <p className="muted">Loading…</p>}
       {groups && groups.length === 0 && <p className="empty">No groups yet.</p>}
-      <ul className="list">
-        {(groups ?? []).map((g) => (
-          <GroupRow key={g.id} group={g} canEdit={canEdit} canDelete={canDelete} onChanged={load} />
-        ))}
-      </ul>
+      {groups && groups.length > 0 && (
+        <ul className="rows">
+          {groups.map((g) => (
+            <GroupRow key={g.id} group={g} canEdit={canEdit} canDelete={canDelete} onChanged={load} />
+          ))}
+        </ul>
+      )}
     </>
   );
 }

@@ -6,7 +6,7 @@ import MemberImport from "./MemberImport.jsx";
 
 const EMPTY = { full_name: "", email: "", phone: "", member_code: "", notes: "", joined_on: "", left_on: "" };
 
-function MemberForm({ member, groups, onSaved, onCancel }) {
+function MemberForm({ member, groups, canDeactivate, onSaved, onCancel }) {
   const id = useId();
   const headRef = useRef(null);
   const createdRef = useRef(null);
@@ -54,6 +54,19 @@ function MemberForm({ member, groups, onSaved, onCancel }) {
     }
   };
 
+  const toggleActive = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      await api(`/members/${member.id}`, { method: "PATCH", body: { active: !member.active } });
+      onSaved();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const field = (k, label, props = {}) => (
     <div className="field">
       <label htmlFor={`${id}-${k}`}>{label}</label>
@@ -62,14 +75,14 @@ function MemberForm({ member, groups, onSaved, onCancel }) {
   );
 
   return (
-    <form className="card" onSubmit={submit}>
+    <form className="card member-form" onSubmit={submit}>
       <h2 tabIndex={-1} ref={headRef}>
         {member ? `Edit ${member.full_name}` : "Add a member"}
       </h2>
       <div className="form-grid">
-        {field("full_name", "Full name (required)", { required: true })}
-        {field("email", "Email", { type: "email" })}
-        {field("phone", "Phone", { type: "tel" })}
+        {field("full_name", "Full name (required)", { required: true, autoComplete: "name", autoCapitalize: "words" })}
+        {field("email", "Email", { type: "email", autoComplete: "email", inputMode: "email" })}
+        {field("phone", "Phone", { type: "tel", autoComplete: "tel", inputMode: "tel" })}
         {field("member_code", "Member code")}
         {field("joined_on", "Joined on", { type: "date" })}
         {field("left_on", "Left on", { type: "date" })}
@@ -93,50 +106,52 @@ function MemberForm({ member, groups, onSaved, onCancel }) {
           {error}
         </p>
       )}
-      <div className="row-actions">
+      <div className="row-actions form-actions">
         <button type="submit" className="primary" disabled={busy}>
           {busy ? "Saving…" : member ? "Save changes" : "Add member"}
         </button>
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
+        {member && canDeactivate && (
+          <button type="button" className="form-actions-end" onClick={toggleActive} disabled={busy}>
+            {member.active ? "Deactivate member" : "Reactivate member"}
+          </button>
+        )}
       </div>
     </form>
   );
 }
 
-function MemberRow({ member, groupNames, canEdit, canDeactivate, onEdit, onChanged }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-
-  const setActive = async (active) => {
-    setBusy(true);
-    setErr("");
-    try {
-      await api(`/members/${member.id}`, { method: "PATCH", body: { active } });
-      onChanged();
-    } catch (e) {
-      setErr(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+function MemberRow({ member, groupNames, canEdit, uid, onEdit }) {
   const names = member.group_ids.map((gid) => groupNames.get(gid)).filter(Boolean);
+  const sub = [member.email, member.phone, member.member_code && `Code ${member.member_code}`].filter(Boolean);
 
   return (
-    <li className={`card item${member.active ? "" : " is-read"}`}>
-      <div className="item-head">
-        <h2>{member.full_name}</h2>
-        {!member.active && <span className="chip">Inactive</span>}
-      </div>
-      <div className="meta">
-        {member.email && <span>{member.email}</span>}
-        {member.phone && <span>{member.phone}</span>}
-        {member.member_code && <span>Code {member.member_code}</span>}
+    <li className={`row${member.active ? "" : " is-muted"}`}>
+      <div className="row-main">
+        <div className="row-title">
+          <a id={`${uid}-name-${member.id}`} href={`#members?id=${member.id}`}>
+            {member.full_name}
+            <span className="sr-only"> – attendance history</span>
+          </a>
+          {!member.active && (
+            <>
+              {" "}
+              <span className="chip">Inactive</span>
+            </>
+          )}
+        </div>
+        {sub.length > 0 && (
+          <div className="row-sub">
+            {sub.map((t) => (
+              <span key={t}>{t}</span>
+            ))}
+          </div>
+        )}
       </div>
       {names.length > 0 && (
-        <div className="meta">
+        <div className="row-side">
           <span className="sr-only">Groups:</span>
           {names.map((n) => (
             <span key={n} className="chip accent">
@@ -145,26 +160,12 @@ function MemberRow({ member, groupNames, canEdit, canDeactivate, onEdit, onChang
           ))}
         </div>
       )}
-      <div className="row-actions">
-        <a className="link-button" href={`#members?id=${member.id}`}>
-          History<span className="sr-only"> of {member.full_name}</span>
-        </a>
-        {canEdit && (
-          <button type="button" className="small" onClick={() => onEdit(member)}>
+      {canEdit && (
+        <div className="row-actions-inline">
+          <button type="button" id={`${uid}-edit-${member.id}`} className="small" onClick={() => onEdit(member)}>
             Edit<span className="sr-only"> {member.full_name}</span>
           </button>
-        )}
-        {canDeactivate && (
-          <button type="button" className="small" onClick={() => setActive(!member.active)} disabled={busy}>
-            {member.active ? "Deactivate" : "Reactivate"}
-            <span className="sr-only"> {member.full_name}</span>
-          </button>
-        )}
-      </div>
-      {err && (
-        <p role="alert" className="error">
-          {err}
-        </p>
+        </div>
       )}
     </li>
   );
@@ -185,10 +186,32 @@ function MemberList({ role, groupParam }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(Boolean(groupParam));
+  const headRef = useRef(null);
+  const addRef = useRef(null);
+  const returnTo = useRef(null); // member id (or "new") whose control gets focus when the form closes
 
   useEffect(() => {
     setGroup(groupParam ?? "");
+    if (groupParam) setFiltersOpen(true);
   }, [groupParam]);
+
+  // When the form closes, put focus back on the control that opened it (or the heading if that row is gone).
+  useEffect(() => {
+    if (editing !== null || returnTo.current === null) return;
+    const rid = returnTo.current;
+    returnTo.current = null;
+    const el =
+      rid === "new"
+        ? addRef.current
+        : (document.getElementById(`${id}-edit-${rid}`) ?? document.getElementById(`${id}-name-${rid}`));
+    (el ?? headRef.current)?.focus();
+  }, [editing, id]);
+
+  const closeForm = () => {
+    returnTo.current = editing === "new" ? "new" : (editing?.id ?? null);
+    setEditing(null);
+  };
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 300);
@@ -235,102 +258,165 @@ function MemberList({ role, groupParam }) {
     );
   }
 
+  const activeFilters = (group ? 1 : 0) + (active ? 1 : 0);
+  const groupName = group ? groupNames.get(Number(group)) : null;
+  const clearFilters = () => {
+    setGroup("");
+    setActive("");
+  };
+  const editingInList = Boolean(editing && editing !== "new" && members?.some((m) => m.id === editing.id));
+  const form = (member) => (
+    <MemberForm
+      key={member ? member.id : "new"}
+      member={member}
+      groups={groups}
+      canDeactivate={role === "secretary"}
+      onCancel={closeForm}
+      onSaved={() => {
+        closeForm();
+        refresh();
+      }}
+    />
+  );
+
   return (
     <>
-      <h1>Members</h1>
-      <div className="toolbar">
-        {canEdit && !editing && (
-          <button
-            type="button"
-            className="primary"
-            onClick={() => {
-              setNotice("");
-              setEditing("new");
-            }}
-          >
-            Add member
-          </button>
-        )}
-        {canImport && !editing && (
-          <button type="button" onClick={() => setView("import")}>
-            Import from spreadsheet
-          </button>
-        )}
-        <a className="button" href={`/exports/members.csv${query({ q: debouncedQ, group_id: group, active })}`} download>
-          Download member list
-        </a>
+      <div className="page-head">
+        <h1 tabIndex={-1} ref={headRef}>
+          Members
+        </h1>
+        <div className="actions">
+          {canEdit && !editing && (
+            <button
+              type="button"
+              className="primary"
+              ref={addRef}
+              onClick={() => {
+                setNotice("");
+                setEditing("new");
+              }}
+            >
+              Add member
+            </button>
+          )}
+          {canImport && !editing && (
+            <button type="button" onClick={() => setView("import")}>
+              Import<span className="hide-narrow"> from spreadsheet</span>
+            </button>
+          )}
+        </div>
       </div>
       {notice && (
         <p role="status" className="notice">
           {notice}
         </p>
       )}
-      {editing && (
-        <MemberForm
-          key={editing === "new" ? "new" : editing.id}
-          member={editing === "new" ? null : editing}
-          groups={groups}
-          onCancel={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            refresh();
-          }}
+      {editing && !editingInList && form(editing === "new" ? null : editing)}
+      <div className="searchbar members-search">
+        <label htmlFor={`${id}-q`} className="sr-only">
+          Search members
+        </label>
+        <input
+          id={`${id}-q`}
+          type="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Name, email, phone or code"
         />
-      )}
-      <div className="card filters">
-        <div className="field">
-          <label htmlFor={`${id}-q`}>Search</label>
-          <input id={`${id}-q`} type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, email, phone or code" />
-        </div>
-        <div className="field">
-          <label htmlFor={`${id}-group`}>Group</label>
-          <select id={`${id}-group`} value={group} onChange={(e) => setGroup(e.target.value)}>
-            <option value="">All groups</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor={`${id}-active`}>Show</label>
-          <select id={`${id}-active`} value={active} onChange={(e) => setActive(e.target.value)}>
-            <option value="">All members</option>
-            <option value="true">Active only</option>
-            <option value="false">Inactive only</option>
-          </select>
-        </div>
+        <button
+          type="button"
+          className="filters-toggle"
+          aria-expanded={filtersOpen}
+          aria-controls={`${id}-filters`}
+          onClick={() => setFiltersOpen((o) => !o)}
+        >
+          Filters
+          {activeFilters > 0 && (
+            <>
+              {" "}
+              <span className="filters-count" aria-hidden="true">
+                {activeFilters}
+              </span>
+              <span className="sr-only"> ({activeFilters} active)</span>
+            </>
+          )}
+        </button>
+        <span className="count" role="status">
+          {members ? plural(members.length, "member", "members") : ""}
+        </span>
+        {groupName && (
+          <button type="button" className="chip accent chip-remove" aria-label={`Remove group filter ${groupName}`} onClick={() => setGroup("")}>
+            Group: {groupName} <span aria-hidden="true">✕</span>
+          </button>
+        )}
+        {activeFilters > 0 && (
+          <button type="button" className="text-button" onClick={clearFilters}>
+            Clear filters
+          </button>
+        )}
       </div>
+      {filtersOpen && (
+        <div className="card filters filters-panel" id={`${id}-filters`}>
+          <div className="field">
+            <label htmlFor={`${id}-group`}>Group</label>
+            <select id={`${id}-group`} value={group} onChange={(e) => setGroup(e.target.value)}>
+              <option value="">All groups</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor={`${id}-active`}>Show</label>
+            <select id={`${id}-active`} value={active} onChange={(e) => setActive(e.target.value)}>
+              <option value="">All members</option>
+              <option value="true">Active only</option>
+              <option value="false">Inactive only</option>
+            </select>
+          </div>
+        </div>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
       {!members && !error && <p className="muted">Loading…</p>}
+      {members && members.length === 0 && <p className="empty">No members match. Change the search or filters, or add a member.</p>}
+      {members && members.length > 0 && (
+        <ul className="rows">
+          {members.map((m) =>
+            editingInList && editing.id === m.id ? (
+              <li key={m.id} className="row row-form">
+                {form(editing)}
+              </li>
+            ) : (
+              <MemberRow
+                key={m.id}
+                member={m}
+                groupNames={groupNames}
+                canEdit={canEdit}
+                uid={id}
+                onEdit={(mem) => {
+                  setNotice("");
+                  setEditing(mem);
+                }}
+              />
+            ),
+          )}
+        </ul>
+      )}
       {members && (
-        <p className="muted" role="status">
-          {plural(members.length, "member", "members")}
+        <p>
+          <a className="button small" href={`/exports/members.csv${query({ q: debouncedQ, group_id: group, active })}`} download>
+            Download this list (CSV)
+          </a>
         </p>
       )}
-      {members && members.length === 0 && <p className="empty">No members match. Change the search or filters, or add a member.</p>}
-      <ul className="list">
-        {(members ?? []).map((m) => (
-          <MemberRow
-            key={m.id}
-            member={m}
-            groupNames={groupNames}
-            canEdit={canEdit}
-            canDeactivate={role === "secretary"}
-            onEdit={(mem) => {
-              setNotice("");
-              setEditing(mem);
-              window.scrollTo({ top: 0 });
-            }}
-            onChanged={refresh}
-          />
-        ))}
-      </ul>
     </>
   );
 }

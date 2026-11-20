@@ -78,9 +78,11 @@ export default function MemberImport({ onCancel, onDone }) {
 
   return (
     <>
-      <h1 tabIndex={-1} ref={headRef}>
-        Import members
-      </h1>
+      <div className="page-head">
+        <h1 tabIndex={-1} ref={headRef}>
+          Import members
+        </h1>
+      </div>
       <p>
         Save your spreadsheet as CSV (UTF-8). Columns: full_name (or name), email, phone, member_code, notes,
         joined_on, left_on, groups (separate several with ;).
@@ -142,7 +144,7 @@ export default function MemberImport({ onCancel, onDone }) {
                     const hasErrors = row.errors.length > 0;
                     return (
                       <tr key={row.row}>
-                        <td>{row.row}</td>
+                        <th scope="row">{row.row}</th>
                         <td>{row.data.full_name}</td>
                         <td>{row.data.email}</td>
                         <td>{row.data.phone}</td>
