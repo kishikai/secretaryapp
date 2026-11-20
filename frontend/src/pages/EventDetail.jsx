@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { errorText, formatEventWhen } from "../format.js";
 import Attendees from "./Attendees.jsx";
 import EventForm from "./EventForm.jsx";
+import Register from "./Register.jsx";
 import { StatusChip, goToEvent } from "./eventUi.jsx";
 
 const CONFIRMS = {
@@ -194,6 +195,9 @@ export default function EventDetail({ id, role }) {
       )}
 
       <Attendees event={event} canEdit={canEdit && open} onChanged={load} />
+
+      {(event.status === "scheduled" || event.status === "completed") && <Register event={event} role={role} onChanged={load} />}
+      {event.status === "draft" && <p className="muted">Schedule the event to take attendance.</p>}
     </>
   );
 }

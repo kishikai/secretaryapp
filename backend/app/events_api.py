@@ -131,15 +131,27 @@ def get_event(conn: sqlite3.Connection, event_id: int) -> dict:
             "phone": r["phone"],
             "active": bool(r["active"]),
             "group_ids": groups.get(r["id"], []),
+            "status": r["status"],
+            "recorded_at": r["recorded_at"],
+            "recorded_by": r["recorded_by"],
         }
         for r in conn.execute(
-            "SELECT m.id, m.full_name, m.email, m.phone, m.active FROM event_attendees a "
-            "JOIN members m ON m.id = a.member_id WHERE a.event_id = ? "
-            "ORDER BY m.full_name COLLATE NOCASE, m.id",
+            "SELECT m.id, m.full_name, m.email, m.phone, m.active, a.status, a.recorded_at, "
+            "u.username AS recorded_by FROM event_attendees a "
+            "JOIN members m ON m.id = a.member_id LEFT JOIN admins u ON u.id = a.recorded_by "
+            "WHERE a.event_id = ? ORDER BY m.full_name COLLATE NOCASE, m.id",
             (event_id,),
         )
     ]
-    return {**event_out(row), "attendees": attendees}
+    finalized_by = conn.execute(
+        "SELECT username FROM admins WHERE id = ?", (row["finalized_by"],)
+    ).fetchone()
+    return {
+        **event_out(row),
+        "finalized_at": row["finalized_at"],
+        "finalized_by": finalized_by[0] if finalized_by else None,
+        "attendees": attendees,
+    }
 
 
 def require_unlocked(conn: sqlite3.Connection, event_id: int) -> None:

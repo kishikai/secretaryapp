@@ -700,3 +700,118 @@ summary {
   flex: 1 1 12rem;
   margin-bottom: 0;
 }
+
+/* Register */
+:root {
+  --warn: #8a5300;
+  --warn-soft: #fdf1dc;
+  --ok-soft: #e1f4ea;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --warn: #f0b24d;
+    --warn-soft: #3a2c12;
+    --ok-soft: #14301f;
+  }
+}
+.banner {
+  background: var(--ok-soft);
+  border: 1px solid var(--ok);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+}
+.register-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+.chip.st-present,
+.seg.on.st-present span {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.chip.st-late,
+.seg.on.st-late span {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.chip.st-absent,
+.seg.on.st-absent span {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.chip.st-excused,
+.seg.on.st-excused span {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.status-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.seg {
+  position: relative;
+  display: inline-block;
+}
+.seg span {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+.seg:hover span {
+  background: var(--surface-2);
+}
+.seg.on span {
+  font-weight: 700;
+  border-color: currentColor;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.seg.on.st-not_recorded span {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.seg.on span::before {
+  content: "✓ ";
+}
+.seg input:focus-visible + span {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.seg input:disabled + span {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.register-row .status-pick {
+  flex: 0 1 auto;
+}
+.finalise {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+.register-history {
+  margin-top: 1rem;
+}
+.history-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+.history-list li {
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+}

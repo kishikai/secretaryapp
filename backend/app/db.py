@@ -152,6 +152,35 @@ CREATE TABLE IF NOT EXISTS event_attendees (
 CREATE INDEX IF NOT EXISTS idx_event_attendees_member ON event_attendees (member_id);
 """
 
+# v0.11 (Phase 3): attendance. One status per expected person (D7); every change is audited (D8).
+ATTENDANCE_COLUMNS = {
+    "event_attendees": {
+        "status": "TEXT NOT NULL DEFAULT 'not_recorded' "
+        "CHECK (status IN ('not_recorded', 'present', 'late', 'absent', 'excused'))",
+        "recorded_at": "TEXT",
+        "recorded_by": "INTEGER REFERENCES admins(id)",
+    },
+    "events": {
+        "finalized_at": "TEXT",
+        "finalized_by": "INTEGER REFERENCES admins(id)",
+    },
+}
+ATTENDANCE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS attendance_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL REFERENCES events(id),  -- no cascade: history outlives nothing
+    member_id INTEGER REFERENCES members(id),         -- NULL for finalise and reopen
+    action TEXT NOT NULL CHECK (action IN ('record', 'finalize', 'reopen')),
+    old_status TEXT,
+    new_status TEXT,
+    reason TEXT,
+    actor_id INTEGER REFERENCES admins(id),
+    actor TEXT NOT NULL,                               -- username at the time
+    at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_attendance_audit_event ON attendance_audit (event_id, id);
+"""
+
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
 
@@ -222,3 +251,9 @@ def init_db(db_path: str) -> None:
         conn.executescript(MEMBERS_SCHEMA)
         # v0.10 (Phase 2): events and expected attendees.
         conn.executescript(EVENTS_SCHEMA)
+        for table, wanted in ATTENDANCE_COLUMNS.items():
+            have = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for column, definition in wanted.items():
+                if column not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        conn.executescript(ATTENDANCE_SCHEMA)

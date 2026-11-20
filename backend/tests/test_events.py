@@ -285,7 +285,8 @@ def test_attendees_ordered_by_name_ignoring_case(secretary):
     secretary.post(f"/events/{event_id}/attendees", json={"member_ids": [zed, bob, amy]})
     assert attendee_ids(secretary, event_id) == [amy, bob, zed]
     first = secretary.get(f"/events/{event_id}").json()["attendees"][0]
-    assert set(first) == {"member_id", "full_name", "email", "phone", "active", "group_ids"}
+    assert set(first) == {"member_id", "full_name", "email", "phone", "active", "group_ids",
+                          "status", "recorded_at", "recorded_by"}
 
 
 def test_duplicates_are_ignored(secretary):
