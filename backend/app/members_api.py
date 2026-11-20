@@ -373,6 +373,42 @@ def delete_group(group_id: int, request: Request):
     return Response(status_code=204)
 
 
+class MemberIdsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    member_ids: list[int] = Field(min_length=1, max_length=5000)
+
+
+@router.post("/groups/{group_id}/members", dependencies=[Depends(require_editor)])
+def add_group_members(group_id: int, body: MemberIdsIn, request: Request):
+    """Add existing members to a group; members already in it are left as they are."""
+    with connect(request.app.state.db_path) as conn:
+        get_group(conn, group_id)
+        known = {row[0] for row in conn.execute("SELECT id FROM members")}
+        unknown = sorted(set(body.member_ids) - known)
+        if unknown:
+            raise HTTPException(422, f"Unknown member id: {', '.join(map(str, unknown))}")
+        before = conn.total_changes
+        conn.executemany(
+            "INSERT OR IGNORE INTO member_groups (member_id, group_id) VALUES (?, ?)",
+            [(member_id, group_id) for member_id in sorted(set(body.member_ids))],
+        )
+        added = conn.total_changes - before
+        return {"added": added, "group": get_group(conn, group_id)}
+
+
+@router.delete("/groups/{group_id}/members/{member_id}", status_code=204, dependencies=[Depends(require_editor)])
+def remove_group_member(group_id: int, member_id: int, request: Request):
+    with connect(request.app.state.db_path) as conn:
+        get_group(conn, group_id)
+        removed = conn.execute(
+            "DELETE FROM member_groups WHERE group_id = ? AND member_id = ?", (group_id, member_id)
+        ).rowcount
+        if not removed:
+            raise HTTPException(404, "That member isn't in this group")
+    return Response(status_code=204)
+
+
 # ------------------------------------------------------------------- import
 
 

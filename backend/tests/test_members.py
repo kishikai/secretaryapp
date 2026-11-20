@@ -306,3 +306,31 @@ def test_init_db_adds_member_tables_to_an_older_database(db_path):
         assert conn.execute("SELECT COUNT(*) FROM members").fetchone()[0] == 1
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute("INSERT INTO members (full_name, active) VALUES ('B', 2)")
+
+
+def test_add_and_remove_existing_members_on_a_group(tmp_path):
+    from tests.conftest import client_with_role
+    db = str(tmp_path / "group-members.db")
+    secretary = client_with_role(db, "secretary")
+    ann = secretary.post("/members", json={"full_name": "Ann"}).json()["id"]
+    bob = secretary.post("/members", json={"full_name": "Bob"}).json()["id"]
+    group = secretary.post("/groups", json={"name": "Choir"}).json()["id"]
+
+    result = secretary.post(f"/groups/{group}/members", json={"member_ids": [ann, bob, ann]}).json()
+    assert result["added"] == 2 and result["group"]["member_count"] == 2
+    again = secretary.post(f"/groups/{group}/members", json={"member_ids": [ann]}).json()
+    assert again["added"] == 0  # already in the group: left alone
+    assert [m["full_name"] for m in secretary.get("/members", params={"group_id": group}).json()] == ["Ann", "Bob"]
+
+    assert secretary.delete(f"/groups/{group}/members/{bob}").status_code == 204
+    assert secretary.delete(f"/groups/{group}/members/{bob}").status_code == 404
+    assert secretary.get(f"/members/{ann}").json()["group_ids"] == [group]
+
+    assert secretary.post(f"/groups/{group}/members", json={"member_ids": [999]}).status_code == 422
+    assert secretary.post(f"/groups/{group}/members", json={"member_ids": []}).status_code == 422
+    assert secretary.post("/groups/999/members", json={"member_ids": [ann]}).status_code == 404
+
+    assistant, viewer = client_with_role(db, "assistant"), client_with_role(db, "viewer")
+    assert assistant.post(f"/groups/{group}/members", json={"member_ids": [bob]}).status_code == 200
+    assert viewer.post(f"/groups/{group}/members", json={"member_ids": [bob]}).status_code == 403
+    assert viewer.delete(f"/groups/{group}/members/{bob}").status_code == 403
