@@ -48,10 +48,16 @@ def create_user(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
         raise CliError(f"The user {username!r} already exists")
     password = read_password(args.password_stdin)
     conn.execute(
-        "INSERT INTO admins (username, password_hash) VALUES (?, ?)",
-        (username, auth.hash_password(password)),
+        "INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)",
+        (username, auth.hash_password(password), args.role),
     )
-    print(f"Created admin {username!r}")
+    print(f"Created {args.role} {username!r}")
+
+
+def set_role(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
+    if conn.execute("UPDATE admins SET role = ? WHERE username = ?", (args.role, args.username)).rowcount == 0:
+        raise CliError(f"There is no user {args.username!r}")
+    print(f"{args.username!r} is now a {args.role}")
 
 
 def set_password(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
@@ -125,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
             "--password-stdin", action="store_true", help="read the password from one line of stdin"
         )
         command.set_defaults(handler=handler)
+    commands.choices["create-user"].add_argument("--role", choices=auth.ROLES, default="secretary")
+
+    command = commands.add_parser("set-role", help="change a user's role", parents=[db_option])
+    command.add_argument("username")
+    command.add_argument("role", choices=auth.ROLES)
+    command.set_defaults(handler=set_role)
 
     command = commands.add_parser("create-token", help="create an ingest token (printed once)", parents=[db_option])
     command.add_argument("name")

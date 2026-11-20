@@ -37,7 +37,7 @@ def login(credentials: LoginIn, request: Request, response: Response):
         samesite="strict",
         secure=auth.cookie_secure(),
     )
-    return {"username": admin["username"]}
+    return {"username": admin["username"], "role": admin["role"]}
 
 
 @router.post("/logout", status_code=204, dependencies=[Depends(auth.check_csrf_header)])
@@ -58,5 +58,5 @@ def logout(request: Request):
 
 
 @router.get("/me")
-def me(admin=Depends(auth.require_admin)):
-    return {"username": admin["username"]}
+def me(user=Depends(auth.require_user)):
+    return {"username": user["username"], "role": user["role"]}

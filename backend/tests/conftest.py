@@ -35,6 +35,20 @@ def signed_in_client(db_path, ocr_engine=None) -> TestClient:
     return client
 
 
+def client_with_role(db_path, role: str) -> TestClient:
+    """A user named after `role` (secretary, assistant or viewer), signed in."""
+    app = create_app(db_path)
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO admins (username, password_hash, role) VALUES (?, ?, ?)",
+            (role, _admin_hash(), role),
+        )
+    client = TestClient(app, headers=CSRF_HEADERS)
+    response = client.post("/auth/login", json={"username": role, "password": ADMIN_PASSWORD})
+    assert response.status_code == 200, response.text
+    return client
+
+
 @pytest.fixture
 def make_client():
     """Factory: make_client(db_path, ocr_engine=None) -> signed-in TestClient."""

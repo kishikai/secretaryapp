@@ -113,7 +113,7 @@ def test_login_sets_a_hardened_cookie(app, monkeypatch):
     client = signed_in(app)
     response = client.post("/auth/login", json=LOGIN)
     cookie = response.headers["set-cookie"].lower()
-    assert response.status_code == 200 and response.json() == {"username": ADMIN_USERNAME}
+    assert response.status_code == 200 and response.json() == {"username": ADMIN_USERNAME, "role": "secretary"}
     assert cookie.startswith(f"{auth.SESSION_COOKIE}=")
     assert "httponly" in cookie and "samesite=strict" in cookie
     assert "path=/" in cookie and "max-age=43200" in cookie
@@ -137,7 +137,7 @@ def signed_in(app):
 
 
 def test_me_and_only_a_digest_is_stored(admin_client, db_path):
-    assert admin_client.get("/auth/me").json() == {"username": ADMIN_USERNAME}
+    assert admin_client.get("/auth/me").json() == {"username": ADMIN_USERNAME, "role": "secretary"}
     token = admin_client.cookies[auth.SESSION_COOKIE]
     [row] = query(db_path, "SELECT * FROM sessions")
     assert row["token_hash"] == hashlib.sha256(token.encode()).hexdigest() != token

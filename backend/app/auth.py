@@ -27,6 +27,7 @@ CSRF_HEADER = "X-Requested-With"
 CSRF_VALUE = "secretary"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 API_TOKEN_PREFIX = "st_"
+ROLES = ("secretary", "assistant", "viewer")
 
 SCRYPT_N = 2**14
 SCRYPT_R = 8
@@ -134,7 +135,7 @@ def _session_admin(conn: sqlite3.Connection, request: Request) -> Optional[sqlit
     if not token:
         return None
     return conn.execute(
-        "SELECT a.id, a.username FROM sessions s JOIN admins a ON a.id = s.admin_id "
+        "SELECT a.id, a.username, a.role FROM sessions s JOIN admins a ON a.id = s.admin_id "
         "WHERE s.token_hash = ? AND s.expires_at > ?",
         (token_digest(token), now_stamp()),
     ).fetchone()
@@ -188,14 +189,28 @@ def _check_csrf(request: Request) -> None:
         check_csrf_header(request)
 
 
-def require_admin(request: Request) -> sqlite3.Row:
-    """A valid session cookie. State-changing requests also need the CSRF header."""
+def require_user(request: Request) -> sqlite3.Row:
+    """A valid session cookie, any role. State-changing requests also need the CSRF header."""
     with connect(request.app.state.db_path) as conn:
-        admin = _session_admin(conn, request)
-    if admin is None:
+        user = _session_admin(conn, request)
+    if user is None:
         raise HTTPException(401, SIGN_IN_REQUIRED)
     _check_csrf(request)
-    return admin
+    return user
+
+
+def require_role(*roles: str) -> Callable[[Request], sqlite3.Row]:
+    """A signed-in user whose role is one of `roles` (401 if signed out, then 403)."""
+    def dependency(request: Request) -> sqlite3.Row:
+        user = require_user(request)
+        if user["role"] not in roles:
+            raise HTTPException(403, "Your role does not allow this")
+        return user
+    return dependency
+
+
+# Messages, OCR, rules and notifications stay secretary-only (decision D10).
+require_admin = require_role("secretary")
 
 
 def require_ingest(request: Request) -> None:

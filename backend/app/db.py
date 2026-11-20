@@ -160,3 +160,9 @@ def init_db(db_path: str) -> None:
         conn.executescript(RULES_SCHEMA)
         # Migration for databases created before authentication (v0.6).
         conn.executescript(AUTH_SCHEMA)
+        # v0.8 (Phase 1): roles. Existing accounts become secretaries and keep full access.
+        if "role" not in {row["name"] for row in conn.execute("PRAGMA table_info(admins)")}:
+            conn.execute(
+                "ALTER TABLE admins ADD COLUMN role TEXT NOT NULL DEFAULT 'secretary' "
+                "CHECK (role IN ('secretary', 'assistant', 'viewer'))"
+            )
