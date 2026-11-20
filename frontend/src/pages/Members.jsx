@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { api, isAbort, query } from "../api.js";
 import { errorText, plural } from "../format.js";
+import MemberHistory from "./MemberHistory.jsx";
 import MemberImport from "./MemberImport.jsx";
 
 const EMPTY = { full_name: "", email: "", phone: "", member_code: "", notes: "", joined_on: "", left_on: "" };
@@ -144,21 +145,22 @@ function MemberRow({ member, groupNames, canEdit, canDeactivate, onEdit, onChang
           ))}
         </div>
       )}
-      {(canEdit || canDeactivate) && (
-        <div className="row-actions">
-          {canEdit && (
-            <button type="button" className="small" onClick={() => onEdit(member)}>
-              Edit<span className="sr-only"> {member.full_name}</span>
-            </button>
-          )}
-          {canDeactivate && (
-            <button type="button" className="small" onClick={() => setActive(!member.active)} disabled={busy}>
-              {member.active ? "Deactivate" : "Reactivate"}
-              <span className="sr-only"> {member.full_name}</span>
-            </button>
-          )}
-        </div>
-      )}
+      <div className="row-actions">
+        <a className="link-button" href={`#members?id=${member.id}`}>
+          History<span className="sr-only"> of {member.full_name}</span>
+        </a>
+        {canEdit && (
+          <button type="button" className="small" onClick={() => onEdit(member)}>
+            Edit<span className="sr-only"> {member.full_name}</span>
+          </button>
+        )}
+        {canDeactivate && (
+          <button type="button" className="small" onClick={() => setActive(!member.active)} disabled={busy}>
+            {member.active ? "Deactivate" : "Reactivate"}
+            <span className="sr-only"> {member.full_name}</span>
+          </button>
+        )}
+      </div>
       {err && (
         <p role="alert" className="error">
           {err}
@@ -168,7 +170,7 @@ function MemberRow({ member, groupNames, canEdit, canDeactivate, onEdit, onChang
   );
 }
 
-export default function Members({ role, groupParam }) {
+function MemberList({ role, groupParam }) {
   const id = useId();
   const canEdit = role === "secretary" || role === "assistant";
   const canImport = role === "secretary";
@@ -328,4 +330,9 @@ export default function Members({ role, groupParam }) {
       </ul>
     </>
   );
+}
+
+export default function Members({ role, groupParam, idParam }) {
+  if (idParam) return <MemberHistory key={idParam} id={idParam} />;
+  return <MemberList role={role} groupParam={groupParam} />;
 }

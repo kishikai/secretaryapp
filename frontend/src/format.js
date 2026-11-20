@@ -78,3 +78,14 @@ export function todayLocal() {
 }
 
 export const STATUS_LABELS = { draft: "Draft", scheduled: "Scheduled", completed: "Completed", cancelled: "Cancelled" };
+
+// Absence rate (0..1 or null) -> "12%" or "—".
+export const formatRate = (r) => (r === null || r === undefined ? "—" : `${Math.round(r * 100)}%`);
+
+// A calendar day n days before today, as "YYYY-MM-DD" in the viewer's own calendar.
+export function daysAgoLocal(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  const p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}

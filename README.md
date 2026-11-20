@@ -228,6 +228,22 @@ Lifecycle: `draft` -> `scheduled` -> `completed`, and a draft or scheduled event
 | DELETE | `/events/{id}/attendees/{member_id}` | secretary, assistant | Remove one expected attendee (204) |
 | GET | `/categories` | any | Distinct event categories in use, sorted |
 
+## Attendance and absences
+
+Each expected person has one status: `not_recorded` (default), `present`, `late`, `absent` or `excused`. The secretary and the assistant record attendance on scheduled or completed events and can save part-way. Only the secretary finalises a register, which needs everyone recorded and marks the event completed, or reopens it, which needs a reason. Every status change, finalise and reopen is kept in `attendance_audit` with who, when, the old and new status and any reason.
+
+**Absence rule (D9):** only finalised registers of events that weren't cancelled count. Absence rate = absent ÷ (present + late + absent); excused is shown but isn't in the rate, and a member with no present, late or absent has no rate (`null`). A member only counts for events they were expected at.
+
+| Method | Path | Role | Purpose |
+|---|---|---|---|
+| PUT | `/events/{id}/attendance` | secretary, assistant | `{"records": [{"member_id": 1, "status": "present"}], "reason": "optional"}`. 409 for draft or cancelled events and finalised registers |
+| POST | `/events/{id}/finalize` | secretary | Lock the register (409 if anyone is not recorded or the list is empty) |
+| POST | `/events/{id}/reopen` | secretary | `{"reason": "..."}` (required) |
+| GET | `/events/{id}/audit` | any | Change history, newest first |
+| GET | `/absences` | any | Per member over counted events, most absences first. Filters: `date_from`, `date_to`, `group_id`, `active` |
+| GET | `/members/{id}/attendance` | any | A member's totals and every event they were expected at, with `counted` showing which rows make up the totals |
+| GET | `/dashboard` | any | Member and group counts, upcoming events, registers still to finish, and absences over the last 90 days |
+
 ## Backups
 
 `backend/app/backup.py` takes a consistent copy of the database using SQLite's online backup, so it is safe while the server is running. Uncommitted writes are not included. The copy is written to a temporary `.partial` file, checked with `PRAGMA integrity_check`, and only then renamed to `secretary-YYYYMMDDTHHMMSS-ffffffZ.db` (UTC). Afterwards only the newest `--keep` files named `secretary-*.db` in the backup directory are kept; other files are never touched.
@@ -328,6 +344,8 @@ All changes are applied automatically on start-up; existing databases are migrat
 - v0.9 (Phase 1): new tables `members` (unique optional `member_code`), `groups` (unique `name`, case-insensitive) and `member_groups`. Created on start-up if missing.
 
 - v0.10 (Phase 2): new tables `events` (`status` limited to draft, scheduled, completed, cancelled; index `idx_events_starts_at`) and `event_attendees` (primary key `event_id, member_id`; cascades when an event is deleted). Created on start-up if missing.
+
+- v0.11 (Phase 3): `event_attendees` gains `status`, `recorded_at` and `recorded_by`; `events` gains `finalized_at` and `finalized_by`; new table `attendance_audit` (index `idx_attendance_audit_event`). Existing expected attendees start as `not_recorded`.
 
 ## Frontend
 
