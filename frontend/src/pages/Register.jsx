@@ -92,6 +92,7 @@ export default function Register({ event, role, onChanged }) {
   const [edits, setEdits] = useState({}); // member_id -> status, only where it differs from the saved value
   const [reason, setReason] = useState("");
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState(null); // one status, or null for everyone
   const [step, setStep] = useState(null); // "finalize" | "reopen" | null
   const [reopenReason, setReopenReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -161,7 +162,14 @@ export default function Register({ event, role, onChanged }) {
     run(() => api(`/events/${event.id}/reopen`, { method: "POST", body: { reason: reopenReason.trim() } }), "Register reopened. You can change it again.");
 
   const needle = search.trim().toLowerCase();
-  const shown = needle ? attendees.filter((a) => a.full_name.toLowerCase().includes(needle)) : attendees;
+  // A row with an unsaved edit stays visible so it doesn't vanish the moment it is marked.
+  const shown = attendees.filter(
+    (a) =>
+      (!needle || a.full_name.toLowerCase().includes(needle)) &&
+      (!statusFilter || effective(a) === statusFilter || (!finalised && edits[a.member_id] !== undefined)),
+  );
+  const filterName = statusFilter ? label(statusFilter).toLowerCase() : "";
+  const noneText = !statusFilter ? "No one on the list matches that name." : needle ? "No one matches." : `No one is ${filterName}.`;
   const editable = canRecord && !finalised;
   const notRecorded = counts.not_recorded;
 
@@ -189,8 +197,10 @@ export default function Register({ event, role, onChanged }) {
 
       <ul className="register-counts" aria-label="Totals">
         {COUNT_ORDER.map((s) => (
-          <li key={s} className={`chip st-${s}`}>
-            {LABELS[s]}: {counts[s]}
+          <li key={s}>
+            <button type="button" className={`chip chip-toggle st-${s}`} aria-pressed={statusFilter === s} onClick={() => setStatusFilter((cur) => (cur === s ? null : s))}>
+              {LABELS[s]}: {counts[s]}
+            </button>
           </li>
         ))}
       </ul>
@@ -203,6 +213,14 @@ export default function Register({ event, role, onChanged }) {
             <label htmlFor={`${uid}-search`}>Search the register</label>
             <input id={`${uid}-search`} type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Type a name" />
           </div>
+          {statusFilter && (
+            <p role="status" className="muted filter-line">
+              Showing {shown.length} {filterName} ·{" "}
+              <button type="button" className="text-button" onClick={() => setStatusFilter(null)}>
+                Show everyone
+              </button>
+            </p>
+          )}
           {editable && (
             <div className="row-actions" style={{ marginTop: 0, marginBottom: "0.5rem" }}>
               <button type="button" disabled={busy || notRecorded === 0} onClick={markRestPresent}>
@@ -210,7 +228,7 @@ export default function Register({ event, role, onChanged }) {
               </button>
             </div>
           )}
-          {shown.length === 0 && <p className="empty">No one on the list matches that name.</p>}
+          {shown.length === 0 && <p className="empty">{noneText}</p>}
           <ul className="attendees">
             {shown.map((a) => {
               const value = effective(a);
