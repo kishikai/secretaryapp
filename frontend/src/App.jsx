@@ -1,35 +1,44 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, onUnauthorized } from "./api.js";
 import Login from "./pages/Login.jsx";
 import Overview from "./pages/Overview.jsx";
 import Messages from "./pages/Messages.jsx";
 import Notifications from "./pages/Notifications.jsx";
 import Rules from "./pages/Rules.jsx";
+import Members from "./pages/Members.jsx";
+import Groups from "./pages/Groups.jsx";
 
+// secretaryOnly tabs call endpoints that answer 403 to other roles.
 const TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "messages", label: "Messages" },
-  { id: "notifications", label: "Notifications" },
-  { id: "rules", label: "Rules" },
+  { id: "overview", label: "Overview", secretaryOnly: true },
+  { id: "members", label: "Members" },
+  { id: "groups", label: "Groups" },
+  { id: "messages", label: "Messages", secretaryOnly: true },
+  { id: "notifications", label: "Notifications", secretaryOnly: true },
+  { id: "rules", label: "Rules", secretaryOnly: true },
 ];
 
-function readTab() {
-  const h = window.location.hash.slice(1);
-  return TABS.some((t) => t.id === h) ? h : "overview";
+// "#members?group=3" -> { id: "members", params: {group: "3"} }. Unknown or not-allowed tabs fall back to the first one.
+function readTab(tabs) {
+  const [id, search = ""] = window.location.hash.slice(1).split("?");
+  const found = tabs.find((t) => t.id === id) ?? tabs[0];
+  return { id: found.id, params: new URLSearchParams(search) };
 }
 
-function useHashTab() {
-  const [tab, setTab] = useState(readTab);
+function useHashTab(tabs) {
+  const [hash, setHash] = useState(window.location.hash);
   useEffect(() => {
-    const onChange = () => setTab(readTab());
+    const onChange = () => setHash(window.location.hash);
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
-  return tab;
+  return useMemo(() => readTab(tabs), [hash, tabs]);
 }
 
 function Shell({ user, onSignOut }) {
-  const tab = useHashTab();
+  const isSecretary = user.role === "secretary";
+  const tabs = useMemo(() => TABS.filter((t) => isSecretary || !t.secretaryOnly), [isSecretary]);
+  const { id: tab, params } = useHashTab(tabs);
   const [unread, setUnread] = useState(0);
 
   const refreshUnread = useCallback(async () => {
@@ -42,17 +51,18 @@ function Shell({ user, onSignOut }) {
   }, []);
 
   useEffect(() => {
+    if (!isSecretary) return undefined; // /stats is secretary-only
     refreshUnread();
     const id = setInterval(() => {
       if (!document.hidden) refreshUnread();
     }, 30000);
     return () => clearInterval(id);
-  }, [refreshUnread]);
+  }, [refreshUnread, isSecretary]);
 
   useEffect(() => {
-    const label = TABS.find((t) => t.id === tab).label;
+    const label = tabs.find((t) => t.id === tab).label;
     document.title = `${label} · Secretary`;
-  }, [tab]);
+  }, [tab, tabs]);
 
   return (
     <>
@@ -64,7 +74,7 @@ function Shell({ user, onSignOut }) {
           <span className="brand">Secretary</span>
           <nav aria-label="Main">
             <ul className="tabs">
-              {TABS.map((t) => (
+              {tabs.map((t) => (
                 <li key={t.id}>
                   <a href={`#${t.id}`} aria-current={tab === t.id ? "page" : undefined}>
                     {t.label}
@@ -89,6 +99,8 @@ function Shell({ user, onSignOut }) {
       </header>
       <main id="main" className="page">
         {tab === "overview" && <Overview />}
+        {tab === "members" && <Members role={user.role} groupParam={params.get("group")} />}
+        {tab === "groups" && <Groups role={user.role} />}
         {tab === "messages" && <Messages />}
         {tab === "notifications" && <Notifications onUnreadChange={refreshUnread} />}
         {tab === "rules" && <Rules />}

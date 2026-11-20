@@ -31,3 +31,16 @@ export function formatConfidence(c) {
 export const sourceLabel = (s) => (s === "ocr" ? "OCR" : s === "clipboard" ? "Clipboard" : s);
 export const chatLabel = (id) => (id === null || id === undefined ? "No chat" : id);
 export const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// Readable text for an API error. FastAPI sends validation problems (422) as a list of {loc, msg}.
+export function errorText(e) {
+  if (Array.isArray(e?.detail) && e.detail.length) {
+    return e.detail
+      .map((d) => {
+        const field = Array.isArray(d.loc) ? d.loc.filter((p) => p !== "body" && typeof p === "string").join(" ") : "";
+        return field ? `${field}: ${d.msg}` : d.msg;
+      })
+      .join("; ");
+  }
+  return e?.message || "Something went wrong";
+}
