@@ -7,12 +7,14 @@ import Notifications from "./pages/Notifications.jsx";
 import Rules from "./pages/Rules.jsx";
 import Members from "./pages/Members.jsx";
 import Groups from "./pages/Groups.jsx";
+import Events from "./pages/Events.jsx";
 
 // secretaryOnly tabs call endpoints that answer 403 to other roles.
 const TABS = [
   { id: "overview", label: "Overview", secretaryOnly: true },
   { id: "members", label: "Members" },
   { id: "groups", label: "Groups" },
+  { id: "events", label: "Events" },
   { id: "messages", label: "Messages", secretaryOnly: true },
   { id: "notifications", label: "Notifications", secretaryOnly: true },
   { id: "rules", label: "Rules", secretaryOnly: true },
@@ -101,6 +103,7 @@ function Shell({ user, onSignOut }) {
         {tab === "overview" && <Overview />}
         {tab === "members" && <Members role={user.role} groupParam={params.get("group")} />}
         {tab === "groups" && <Groups role={user.role} />}
+        {tab === "events" && <Events role={user.role} idParam={params.get("id")} />}
         {tab === "messages" && <Messages />}
         {tab === "notifications" && <Notifications onUnreadChange={refreshUnread} />}
         {tab === "rules" && <Rules />}

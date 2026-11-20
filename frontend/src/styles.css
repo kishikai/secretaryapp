@@ -630,3 +630,73 @@ summary {
   color: var(--danger);
   font-weight: 600;
 }
+
+/* Events */
+.chip.ok {
+  color: var(--ok);
+}
+.chip.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.facts {
+  display: grid;
+  grid-template-columns: minmax(5rem, max-content) minmax(0, 1fr);
+  gap: 0.35rem 1rem;
+  margin: 0 0 0.5rem;
+}
+.facts dt {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
+}
+.attendees {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+.attendee {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+.attendee .who {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.pick-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.pick-list li {
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.pick-list li:last-child {
+  border-bottom: 0;
+}
+.pick-list .check {
+  margin-bottom: 0;
+}
+.inline-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.inline-add .field {
+  flex: 1 1 12rem;
+  margin-bottom: 0;
+}
