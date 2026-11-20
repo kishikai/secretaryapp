@@ -78,9 +78,13 @@ export default function CollectionStatus() {
   const [stats, setStats] = useState(null);
   const [health, setHealth] = useState("checking");
   const [error, setError] = useState("");
+  const [collectors, setCollectors] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
+    api("/collector/status")
+      .then((c) => !cancelled && setCollectors(c.collectors ?? []))
+      .catch(() => !cancelled && setCollectors([])); // optional extra; stay quiet if it fails
     api("/health")
       .then((h) => !cancelled && setHealth(h.status === "ok" ? "ok" : "down"))
       .catch(() => !cancelled && setHealth("down"));
@@ -106,6 +110,16 @@ export default function CollectionStatus() {
         {health === "down" && "Backend unreachable"}
         {stats && <span className="muted"> · {latest ? `Latest message ${latest}` : "No messages yet"}</span>}
       </p>
+      {collectors && collectors.length > 0 && (
+        <ul className="collector-list" aria-label="Collectors">
+          {collectors.map((c) => (
+            <li key={c.id}>
+              <strong>{c.name}</strong> <span className={c.online ? "chip ok" : "chip danger"}>{c.online ? "Online" : "Offline"}</span>{" "}
+              <span className="muted">{c.last_seen ? `last seen ${formatTime(c.last_seen)}` : "never seen"}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}

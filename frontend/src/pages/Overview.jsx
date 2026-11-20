@@ -12,6 +12,80 @@ function Tile({ label, value }) {
   );
 }
 
+const DISMISS_KEY = "secretary.gettingStartedDismissed";
+
+function readDismissed() {
+  try {
+    return localStorage.getItem(DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// Shown until the basics are set up. Hidden when everything is done, still loading, or dismissed.
+function GettingStarted({ data, role }) {
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const [events, setEvents] = useState(null); // { any, completed }
+
+  useEffect(() => {
+    if (dismissed) return undefined;
+    let cancelled = false;
+    Promise.all([api("/events"), api("/events?status=completed")])
+      .then(([all, done]) => !cancelled && setEvents({ any: all.length > 0, completed: done.length > 0 }))
+      .catch(() => {}); // no card if we can't tell
+    return () => {
+      cancelled = true;
+    };
+  }, [dismissed]);
+
+  if (dismissed || !events) return null;
+
+  const steps = [
+    {
+      done: data.members.active + data.members.inactive > 0,
+      href: "#members",
+      text: "Add your members",
+      hint: role === "secretary" ? "Add them one by one, or use Import from spreadsheet." : "",
+    },
+    { done: data.groups > 0, href: "#groups", text: "Put members into groups", hint: "" },
+    { done: events.any, href: "#events", text: "Create your first event", hint: "" },
+    { done: events.completed, href: "#events", text: "Take attendance and finalise a register", hint: "Open an event and mark who came." },
+  ];
+  if (steps.every((st) => st.done)) return null;
+
+  const hide = () => {
+    try {
+      localStorage.setItem(DISMISS_KEY, "1");
+    } catch {
+      // still hide it for this visit
+    }
+    setDismissed(true);
+  };
+
+  return (
+    <section className="card" aria-labelledby="ov-start">
+      <h2 id="ov-start">Getting started</h2>
+      <ul className="checklist">
+        {steps.map((st) => (
+          <li key={st.text} className={st.done ? "done" : undefined}>
+            <span className="tick" aria-hidden="true">
+              {st.done ? "✓" : ""}
+            </span>
+            <span>
+              <a href={st.href}>{st.text}</a>
+              <span className="sr-only">{st.done ? " (done)" : " (not done yet)"}</span>
+              {!st.done && st.hint && <span className="muted"> {st.hint}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <button type="button" onClick={hide}>
+        Hide this
+      </button>
+    </section>
+  );
+}
+
 export default function Overview({ role }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -39,6 +113,7 @@ export default function Overview({ role }) {
       {!data && !error && <p className="muted">Loading…</p>}
       {data && (
         <>
+          {role !== "viewer" && <GettingStarted data={data} role={role} />}
           <div className="tiles">
             <Tile label="Active members" value={data.members.active} />
             <Tile label="Groups" value={data.groups} />

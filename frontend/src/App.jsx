@@ -10,13 +10,15 @@ import Groups from "./pages/Groups.jsx";
 import Events from "./pages/Events.jsx";
 import Absences from "./pages/Absences.jsx";
 import Evidence from "./pages/Evidence.jsx";
+import Announcements from "./pages/Announcements.jsx";
 
-// secretaryOnly tabs call endpoints that answer 403 to other roles.
+// secretaryOnly tabs call endpoints that answer 403 to other roles; editorOnly tabs are hidden from viewers.
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "members", label: "Members" },
   { id: "groups", label: "Groups" },
   { id: "events", label: "Events" },
+  { id: "announcements", label: "Announcements", editorOnly: true },
   { id: "absences", label: "Absences" },
   { id: "evidence", label: "Review", secretaryOnly: true },
   { id: "messages", label: "Messages", secretaryOnly: true },
@@ -43,9 +45,11 @@ function useHashTab(tabs) {
 
 function Shell({ user, onSignOut }) {
   const isSecretary = user.role === "secretary";
-  const tabs = useMemo(() => TABS.filter((t) => isSecretary || !t.secretaryOnly), [isSecretary]);
+  const isViewer = user.role === "viewer";
+  const tabs = useMemo(() => TABS.filter((t) => (isSecretary || !t.secretaryOnly) && (!isViewer || !t.editorOnly)), [isSecretary, isViewer]);
   const { id: tab, params } = useHashTab(tabs);
   const [unread, setUnread] = useState(0);
+  const [collectorOffline, setCollectorOffline] = useState(false);
 
   const refreshUnread = useCallback(async () => {
     try {
@@ -64,6 +68,28 @@ function Shell({ user, onSignOut }) {
     }, 30000);
     return () => clearInterval(id);
   }, [refreshUnread, isSecretary]);
+
+  // Offline only when at least one collector exists and none has checked in recently.
+  useEffect(() => {
+    if (!isSecretary) return undefined; // /collector/status is secretary-only
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const c = await api("/collector/status");
+        if (!cancelled) setCollectorOffline((c.collectors ?? []).length > 0 && !(c.collectors ?? []).some((x) => x.online));
+      } catch {
+        // keep the previous state
+      }
+    };
+    check();
+    const id = setInterval(() => {
+      if (!document.hidden) check();
+    }, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isSecretary]);
 
   useEffect(() => {
     const label = tabs.find((t) => t.id === tab).label;
@@ -103,11 +129,19 @@ function Shell({ user, onSignOut }) {
           </div>
         </div>
       </header>
+      {isSecretary && collectorOffline && (
+        <div className="collector-notice" role="status">
+          <p>
+            The message collector is offline. Attendance still works — you can take registers by hand. <a href="#overview">See details</a>
+          </p>
+        </div>
+      )}
       <main id="main" className="page">
         {tab === "overview" && <Overview role={user.role} />}
         {tab === "members" && <Members role={user.role} groupParam={params.get("group")} idParam={params.get("id")} />}
         {tab === "groups" && <Groups role={user.role} />}
         {tab === "events" && <Events role={user.role} idParam={params.get("id")} />}
+        {tab === "announcements" && <Announcements />}
         {tab === "absences" && <Absences />}
         {tab === "evidence" && <Evidence />}
         {tab === "messages" && <Messages />}

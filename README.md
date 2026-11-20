@@ -1,6 +1,8 @@
-# Secretary Messenger Monitor
+# Secretary
 
-Skeleton for a monitoring system that stores messages from authorised Messenger group chats. Messages arrive by clipboard or by OCR of screenshots. The project provides the backend, SQLite storage, sign-in, a React dashboard, tests and this guide.
+Attendance and event management for a club or society's secretary: members and groups, events with expected attendees, attendance registers with an audit trail, absence figures, reports, and announcements to paste into Messenger. Messages from authorised Messenger group chats (by clipboard or OCR of screenshots) can be reviewed as evidence, but nothing changes a register without the secretary's approval.
+
+**Secretaries start with [docs/secretary-guide.md](docs/secretary-guide.md).** The rest of this README is for whoever installs and runs the app.
 
 Only process content you are authorised to see. The project does not automate Messenger through unsupported interfaces.
 
@@ -403,6 +405,8 @@ python clipboard_collector.py --api-url http://127.0.0.1:8000 --chat-id my-group
 All options are optional; defaults are `http://127.0.0.1:8000` and 1 second. Press Ctrl+C to stop.
 
 **Token.** The collector sends `Authorization: Bearer <token>` with every message. Create the token on the backend machine with `python -m app.admin create-token my-desktop` (it is printed once), then give it to the collector in the environment variable `SECRETARY_TOKEN` or in a file with `--token-file PATH` (the first line is used; keep the file readable only by you). There is deliberately no `--token` argument, because command lines end up in shell history and process lists. Without a token the collector exits with an error (code 2). Use `https://` for any backend that is not on your own machine, or the token travels in clear text.
+
+**Heartbeat.** Once a minute the collector also calls `POST /collector/heartbeat` with its token, so the secretary's Overview can show it as online, or offline after 5 minutes of silence (`GET /collector/status`, secretary only). A failed heartbeat is only logged; a 401 or 403 stops the collector like a rejected message does. Attendance never depends on the collector.
 
 **Errors.** If the backend answers 401 or 403, the token is wrong, revoked or lacks access: the collector logs "token rejected; check SECRETARY_TOKEN", exits with code 2 and does not treat that text as sent. If the backend is unreachable or returns a 5xx error, the same text is retried on the next poll; any other 4xx rejection (for example text over 10,000 characters) is logged and not retried. Text already on the clipboard when the script starts is not sent.
 

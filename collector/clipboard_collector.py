@@ -17,6 +17,7 @@ log = logging.getLogger("clipboard_collector")
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
 REQUEST_TIMEOUT_SECONDS = 10
+HEARTBEAT_SECONDS = 60  # the dashboard shows the collector offline after 5 minutes without one
 TOKEN_ENV_VAR = "SECRETARY_TOKEN"
 
 
@@ -56,6 +57,30 @@ def send_message(api_url: str, text: str, chat_id: Optional[str], token: str) ->
     )
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def send_heartbeat(api_url: str, token: str) -> None:
+    request = urllib.request.Request(
+        f"{api_url.rstrip('/')}/collector/heartbeat",
+        data=b"",
+        method="POST",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS):
+        pass
+
+
+def beat(send: Callable[[], None]) -> None:
+    """Best effort: a failed heartbeat only makes the dashboard show the collector offline."""
+    try:
+        send()
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            log.error("token rejected; check SECRETARY_TOKEN")
+            raise TokenRejected from exc
+        log.warning("Heartbeat failed (HTTP %s)", exc.code)
+    except (OSError, TimeoutError) as exc:
+        log.warning("Heartbeat failed (%s)", type(exc).__name__)
 
 
 def poll_once(
@@ -149,8 +174,12 @@ def main(argv=None) -> int:
         last_text = None
     log.info("Ignoring text already on the clipboard at start-up. Watching %s (Ctrl+C to stop)", args.api_url)
 
+    last_beat = None
     try:
         while True:
+            if last_beat is None or time.monotonic() - last_beat >= HEARTBEAT_SECONDS:
+                beat(lambda: send_heartbeat(args.api_url, token))
+                last_beat = time.monotonic()
             last_text = poll_once(pyperclip.paste, send, last_text)
             time.sleep(args.interval)
     except TokenRejected:

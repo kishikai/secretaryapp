@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.auth import LoginRateLimiter, require_admin, require_ingest
 from app.auth_api import router as auth_router
 from app.attendance_api import router as attendance_router
+from app.collector_api import router as collector_router
 from app.db import connect, init_db
 from app.evidence_api import router as evidence_router
 from app.exports_api import router as exports_router
@@ -85,6 +86,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
     app.include_router(reports_router)  # any signed-in role
     app.include_router(evidence_router)  # secretary only
     app.include_router(exports_router)  # any signed-in role
+    app.include_router(collector_router)  # heartbeat: ingest token; status: secretary
     app.include_router(events_router)  # likewise
 
     def get_engine():

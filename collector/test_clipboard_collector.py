@@ -190,3 +190,42 @@ def test_interval_must_be_positive(value):
 def test_api_url_must_be_http(value):
     with pytest.raises(SystemExit):
         cc.parse_args(["--api-url", value])
+
+
+def test_heartbeat_failures_never_stop_the_collector():
+    for error in (http_error(500), http_error(404), urllib.error.URLError("down"), TimeoutError()):
+        def send(error=error):
+            raise error
+        cc.beat(send)  # logged, not raised
+
+
+@pytest.mark.parametrize("code", [401, 403])
+def test_heartbeat_token_rejection_stops_the_collector(code):
+    def send():
+        raise http_error(code)
+    with pytest.raises(cc.TokenRejected):
+        cc.beat(send)
+
+
+def test_send_heartbeat_against_real_http_server():
+    seen = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen["path"], seen["authorization"] = self.path, self.headers["Authorization"]
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        cc.send_heartbeat(f"http://127.0.0.1:{server.server_port}/", "st_secret")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+    assert seen == {"path": "/collector/heartbeat", "authorization": "Bearer st_secret"}

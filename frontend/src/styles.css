@@ -11,7 +11,7 @@
   --on-accent: #ffffff;
   --danger: #b42318;
   --danger-soft: #fdeceb;
-  --ok: #1a7f4b;
+  --ok: #146c3f; /* 4.5:1+ on --ok-soft chips */
   --focus: #1b4fd1;
   --bar: #2155cd;
   --radius: 8px;
@@ -910,4 +910,76 @@ tr.not-counted td {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   max-width: 480px;
+}
+
+/* Announcements */
+.preview {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  margin: 0 0 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.warning {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+}
+.status-copy {
+  font-weight: 600;
+}
+
+/* Getting started and collector notices */
+.checklist {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+.checklist li {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.checklist li:last-child {
+  border-bottom: 0;
+}
+.checklist .tick {
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.checklist li.done .tick {
+  background: var(--ok-soft);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.checklist li.done a {
+  color: var(--muted);
+}
+.collector-notice {
+  background: var(--warn-soft);
+  border-bottom: 1px solid var(--warn);
+  color: var(--text);
+}
+.collector-notice p {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0.5rem 1rem;
+}
+.collector-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
 }
