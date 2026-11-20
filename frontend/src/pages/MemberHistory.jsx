@@ -59,6 +59,11 @@ export default function MemberHistory({ id }) {
         Attendance history. Totals count only finalised registers of events that weren't cancelled. Absence rate =
         absent ÷ (present + late + absent); excused isn't counted.
       </p>
+      <div className="toolbar">
+        <a className="button" href={`/exports/members/${encodeURIComponent(member.id)}/attendance.csv`} download>
+          Download history
+        </a>
+      </div>
       <div className="tiles">
         <div className="tile">
           <div className="tile-label">Events counted</div>

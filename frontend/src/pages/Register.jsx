@@ -178,6 +178,13 @@ export default function Register({ event, role, onChanged }) {
         </p>
       )}
 
+      <div className="toolbar">
+        <a className="button" href={`/exports/events/${encodeURIComponent(event.id)}/register.csv`} download>
+          Download attendance sheet
+        </a>
+        {unsaved > 0 && <small className="muted">Save first: the sheet shows saved statuses.</small>}
+      </div>
+
       <ul className="register-counts" aria-label="Totals">
         {COUNT_ORDER.map((s) => (
           <li key={s} className={`chip st-${s}`}>

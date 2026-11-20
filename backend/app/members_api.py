@@ -222,13 +222,8 @@ def insert_member(conn: sqlite3.Connection, member: MemberFields, active: bool =
 # ------------------------------------------------------------------ members
 
 
-@router.get("/members", dependencies=[Depends(require_user)])
-def list_members(
-    request: Request,
-    q: Optional[str] = Query(default=None, max_length=200),
-    group_id: Optional[int] = None,
-    active: Optional[bool] = None,
-):
+def find_members(conn: sqlite3.Connection, q=None, group_id=None, active=None) -> list[dict]:
+    """Every member matching the filters, by name (the list route caps this; exports don't)."""
     conditions: list[str] = []
     params: list = []
     if group_id is not None:
@@ -239,11 +234,10 @@ def list_members(
         params.append(int(active))
     where = " WHERE " + " AND ".join(conditions) if conditions else ""
     needle = " ".join(q.casefold().split()) if q else ""
-    with connect(request.app.state.db_path) as conn:
-        rows = conn.execute(
-            "SELECT * FROM members" + where + " ORDER BY full_name COLLATE NOCASE, id", params
-        ).fetchall()
-        groups = member_ids_by_group(conn)
+    rows = conn.execute(
+        "SELECT * FROM members" + where + " ORDER BY full_name COLLATE NOCASE, id", params
+    ).fetchall()
+    groups = member_ids_by_group(conn)
     if needle:
         # shortcut: substring search runs in Python (SQLite LIKE is ASCII-only case-insensitive);
         # fine for a few thousand members.
@@ -255,7 +249,18 @@ def list_members(
                 if row[field] is not None
             )
         ]
-    return [member_out(row, groups.get(row["id"], [])) for row in rows[:MAX_LISTED_MEMBERS]]
+    return [member_out(row, groups.get(row["id"], [])) for row in rows]
+
+
+@router.get("/members", dependencies=[Depends(require_user)])
+def list_members(
+    request: Request,
+    q: Optional[str] = Query(default=None, max_length=200),
+    group_id: Optional[int] = None,
+    active: Optional[bool] = None,
+):
+    with connect(request.app.state.db_path) as conn:
+        return find_members(conn, q, group_id, active)[:MAX_LISTED_MEMBERS]
 
 
 @router.post("/members", status_code=201)

@@ -36,6 +36,11 @@ export default function Absences() {
         Counts only finalised registers of events that weren't cancelled. Absence rate = absent ÷ (present + late +
         absent); excused isn't counted.
       </p>
+      <div className="toolbar">
+        <a className="button" href={`/exports/absences.csv${query({ date_from: dateFrom, date_to: dateTo, group_id: group, active })}`} download>
+          Download absence report
+        </a>
+      </div>
       <div className="card filters">
         <div className="field">
           <label htmlFor={`${id}-from`}>From date</label>

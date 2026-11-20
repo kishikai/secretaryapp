@@ -14,6 +14,7 @@ from app.auth_api import router as auth_router
 from app.attendance_api import router as attendance_router
 from app.db import connect, init_db
 from app.evidence_api import router as evidence_router
+from app.exports_api import router as exports_router
 from app.reports_api import router as reports_router
 from app.events_api import router as events_router
 from app.members_api import router as members_router
@@ -83,6 +84,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
     app.include_router(attendance_router)
     app.include_router(reports_router)  # any signed-in role
     app.include_router(evidence_router)  # secretary only
+    app.include_router(exports_router)  # any signed-in role
     app.include_router(events_router)  # likewise
 
     def get_engine():

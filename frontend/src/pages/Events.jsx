@@ -46,6 +46,9 @@ function EventList({ role }) {
             New event
           </button>
         )}
+        <a className="button" href={`/exports/events.csv${query({ q: debouncedQ, status, date_from: from, date_to: dateTo })}`} download>
+          Download event summary
+        </a>
       </div>
       {creating && <EventForm onCancel={() => setCreating(false)} onSaved={(created) => goToEvent(created.id)} />}
       <div className="card filters">

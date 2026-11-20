@@ -187,15 +187,8 @@ def check_day(value: Optional[str], name: str) -> Optional[str]:
 # ------------------------------------------------------------------- events
 
 
-@router.get("/events", dependencies=[Depends(require_user)])
-def list_events(
-    request: Request,
-    q: Optional[str] = Query(default=None, max_length=200),
-    status: Optional[Status] = None,
-    category: Optional[str] = Query(default=None, max_length=100),
-    date_from: Optional[str] = Query(default=None, max_length=10),
-    date_to: Optional[str] = Query(default=None, max_length=10),
-):
+def find_events(conn: sqlite3.Connection, q=None, status=None, category=None, date_from=None, date_to=None) -> list[dict]:
+    """Every event matching the filters, by start time (the list route caps this; exports don't)."""
     conditions: list[str] = []
     params: list = []
     if status is not None:
@@ -204,8 +197,6 @@ def list_events(
     if category is not None:
         conditions.append("e.category = ?")
         params.append(category)
-    date_from = check_day(date_from, "date_from")
-    date_to = check_day(date_to, "date_to")
     if date_from is not None:
         conditions.append("substr(e.starts_at, 1, 10) >= ?")
         params.append(date_from)
@@ -214,8 +205,7 @@ def list_events(
         params.append(date_to)
     where = " WHERE " + " AND ".join(conditions) if conditions else ""
     needle = " ".join(q.casefold().split()) if q else ""
-    with connect(request.app.state.db_path) as conn:
-        rows = conn.execute(EVENT_SELECT + where + " ORDER BY e.starts_at, e.id", params).fetchall()
+    rows = conn.execute(EVENT_SELECT + where + " ORDER BY e.starts_at, e.id", params).fetchall()
     if needle:
         # shortcut: substring search runs in Python, like /members.
         rows = [
@@ -226,7 +216,22 @@ def list_events(
                 if row[field] is not None
             )
         ]
-    return [event_out(row) for row in rows[:MAX_LISTED_EVENTS]]
+    return [event_out(row) for row in rows]
+
+
+@router.get("/events", dependencies=[Depends(require_user)])
+def list_events(
+    request: Request,
+    q: Optional[str] = Query(default=None, max_length=200),
+    status: Optional[Status] = None,
+    category: Optional[str] = Query(default=None, max_length=100),
+    date_from: Optional[str] = Query(default=None, max_length=10),
+    date_to: Optional[str] = Query(default=None, max_length=10),
+):
+    date_from = check_day(date_from, "date_from")
+    date_to = check_day(date_to, "date_to")
+    with connect(request.app.state.db_path) as conn:
+        return find_events(conn, q, status, category, date_from, date_to)[:MAX_LISTED_EVENTS]
 
 
 @router.post("/events", status_code=201, dependencies=[Depends(require_editor)])

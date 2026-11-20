@@ -256,6 +256,18 @@ Approving sets that person's status through the same audited path as the registe
 | POST | `/evidence/{message_id}/approve` | `{"member_id", "event_id", "status", "note"}`. 409 if already reviewed, the event is draft or cancelled, or the register is finalised; 422 if the person isn't expected |
 | POST | `/evidence/{message_id}/reject` | `{"note"}` (optional) |
 
+## Reports and exports
+
+Every report downloads as a CSV file that opens in Excel (UTF-8 with a byte-order mark, so accented names survive). Each one starts with its title, when it was generated (server time), the filters and period it covers and, for absence figures, the counting rule. It ends with totals. Downloads use the same filters and calculations as the screens, without the screens' 1000-row limits. Any signed-in role can download. A cell starting with `=`, `+`, `-` or `@` is prefixed with `'` so a spreadsheet never runs imported text as a formula.
+
+| Path | Report | Filters |
+|---|---|---|
+| `/exports/members.csv` | Member list with groups | `q`, `group_id`, `active` |
+| `/exports/events.csv` | Event summary: expected and each status per event (raw counts, cancelled events included, with each event's status shown) | `q`, `status`, `category`, `date_from`, `date_to` |
+| `/exports/events/{id}/register.csv` | Attendance sheet for one event, saying whether the register is finalised | |
+| `/exports/absences.csv` | Absence report (rule D9) with overall totals | `date_from`, `date_to`, `group_id`, `active` |
+| `/exports/members/{id}/attendance.csv` | One member's history, marking which events count | |
+
 ## Backups
 
 `backend/app/backup.py` takes a consistent copy of the database using SQLite's online backup, so it is safe while the server is running. Uncommitted writes are not included. The copy is written to a temporary `.partial` file, checked with `PRAGMA integrity_check`, and only then renamed to `secretary-YYYYMMDDTHHMMSS-ffffffZ.db` (UTC). Afterwards only the newest `--keep` files named `secretary-*.db` in the backup directory are kept; other files are never touched.

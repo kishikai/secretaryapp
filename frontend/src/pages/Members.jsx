@@ -256,6 +256,9 @@ function MemberList({ role, groupParam }) {
             Import from spreadsheet
           </button>
         )}
+        <a className="button" href={`/exports/members.csv${query({ q: debouncedQ, group_id: group, active })}`} download>
+          Download member list
+        </a>
       </div>
       {notice && (
         <p role="status" className="notice">
