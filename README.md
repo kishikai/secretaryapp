@@ -211,6 +211,23 @@ Roles: anyone signed in can read; the secretary and the assistant can add and ed
 
 CSV columns (headers are case-insensitive, spaces count as underscores, other columns are ignored): `full_name` (or `name`; required), `email`, `phone`, `member_code`, `notes`, `joined_on`, `left_on`, `groups` (names separated by `;`; unknown groups are created and members are added to them). Save from Excel as "CSV UTF-8". A row is a duplicate candidate when `member_code` or email matches, or the phone digits (at least 7) or the full name match, against existing members or earlier rows in the same file. An `update` only fills fields that are not empty in the row.
 
+## Events
+
+Roles: anyone signed in can read; the secretary and the assistant can create, edit, duplicate and manage expected attendees; only the secretary can delete an event (draft only). Times (`starts_at`, `ends_at`) are local wall-clock strings like `2025-03-31T18:30`, with no time zone; `ends_at` is optional but cannot be before `starts_at`.
+
+Lifecycle: `draft` -> `scheduled` -> `completed`, and a draft or scheduled event can be `cancelled`. Any other status change answers 409. New events are created as `draft` (default) or `scheduled`. Completed and cancelled events are locked: only `notes` can change and the expected list cannot be edited. Expected attendees are a snapshot: adding a group adds its active members at that moment as individual rows, and later group changes do not alter the event.
+
+| Method | Path | Role | Purpose |
+|---|---|---|---|
+| GET | `/events` | any | List (max 1000, by start time). Filters: `q` (substring of name, location or category), `status`, `category` (exact), `date_from`, `date_to` (`YYYY-MM-DD`, inclusive). Each event has `expected_count` |
+| POST | `/events` | secretary, assistant | Create (201). Fields: `name` (required), `starts_at` (required), `ends_at`, `location`, `category`, `notes`, `status` (`draft` or `scheduled`) |
+| GET / PATCH | `/events/{id}` | any / secretary, assistant | Read with `attendees`, or change any field including `status` |
+| POST | `/events/{id}/duplicate` | secretary, assistant | Copy with its expected attendees as a new draft (201) |
+| DELETE | `/events/{id}` | secretary | Delete a draft event (204); other statuses answer 409, cancel them instead |
+| POST | `/events/{id}/attendees` | secretary, assistant | `{"member_ids": [1, 2], "group_ids": [3]}` (at least one, max 5000 each). Inactive or unknown members and unknown groups answer 422; members already on the list are ignored. Returns `{added, event}` |
+| DELETE | `/events/{id}/attendees/{member_id}` | secretary, assistant | Remove one expected attendee (204) |
+| GET | `/categories` | any | Distinct event categories in use, sorted |
+
 ## Backups
 
 `backend/app/backup.py` takes a consistent copy of the database using SQLite's online backup, so it is safe while the server is running. Uncommitted writes are not included. The copy is written to a temporary `.partial` file, checked with `PRAGMA integrity_check`, and only then renamed to `secretary-YYYYMMDDTHHMMSS-ffffffZ.db` (UTC). Afterwards only the newest `--keep` files named `secretary-*.db` in the backup directory are kept; other files are never touched.
@@ -309,6 +326,8 @@ All changes are applied automatically on start-up; existing databases are migrat
 - v0.7 (Sprint 8): foreign keys are enforced on every connection (`PRAGMA foreign_keys = ON`), and connections are always closed. New index `idx_messages_source (source)`; `idx_matches_rule` is replaced by the covering index `idx_matches_rule_message (rule_id, message_id)`. Both serve `/stats`.
 
 - v0.9 (Phase 1): new tables `members` (unique optional `member_code`), `groups` (unique `name`, case-insensitive) and `member_groups`. Created on start-up if missing.
+
+- v0.10 (Phase 2): new tables `events` (`status` limited to draft, scheduled, completed, cancelled; index `idx_events_starts_at`) and `event_attendees` (primary key `event_id, member_id`; cascades when an event is deleted). Created on start-up if missing.
 
 ## Frontend
 

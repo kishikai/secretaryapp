@@ -129,6 +129,29 @@ CREATE TABLE IF NOT EXISTS member_groups (
 CREATE INDEX IF NOT EXISTS idx_member_groups_group ON member_groups (group_id);
 """
 
+EVENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    starts_at TEXT NOT NULL,  -- local wall-clock time, YYYY-MM-DDTHH:MM (no time zone)
+    ends_at TEXT,             -- same format
+    location TEXT,
+    category TEXT,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'completed', 'cancelled')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_starts_at ON events (starts_at);
+CREATE TABLE IF NOT EXISTS event_attendees (
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    member_id INTEGER NOT NULL REFERENCES members(id),
+    added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (event_id, member_id)
+);
+CREATE INDEX IF NOT EXISTS idx_event_attendees_member ON event_attendees (member_id);
+"""
+
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
 
@@ -197,3 +220,5 @@ def init_db(db_path: str) -> None:
             )
         # v0.9 (Phase 1): members and groups.
         conn.executescript(MEMBERS_SCHEMA)
+        # v0.10 (Phase 2): events and expected attendees.
+        conn.executescript(EVENTS_SCHEMA)
