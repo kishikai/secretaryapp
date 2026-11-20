@@ -112,7 +112,7 @@ def test_list_filters_and_ordering(secretary):
     listing = secretary.get("/events").json()
     assert [e["id"] for e in listing] == [c["id"], d["id"], b["id"], a["id"]]
     assert set(listing[0]) == {"id", "name", "starts_at", "ends_at", "location", "category", "notes",
-                               "status", "expected_count"}
+                               "status", "expected_count", "series_id"}
 
     def ids(**params):
         return [e["id"] for e in secretary.get("/events", params=params).json()]

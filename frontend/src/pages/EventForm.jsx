@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api.js";
-import { errorText, toLocalInput } from "../format.js";
+import { MAX_SPLIT_DAYS, daySpan, errorText, toLocalInput } from "../format.js";
 
 // Create (event = null) or edit. A completed or cancelled event only lets the notes change.
 export default function EventForm({ event, onSaved, onCancel }) {
@@ -18,6 +18,10 @@ export default function EventForm({ event, onSaved, onCancel }) {
   const [categories, setCategories] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [split, setSplit] = useState(true);
+  const [createdId, setCreatedId] = useState(null); // set when the event was created but splitting it failed
+  const span = event ? null : daySpan(f.starts_at, f.ends_at);
+  const canSplit = Boolean(span && span.timesOk && !span.tooLong);
   const locked = event && (event.status === "completed" || event.status === "cancelled");
 
   useEffect(() => {
@@ -53,7 +57,17 @@ export default function EventForm({ event, onSaved, onCancel }) {
         onSaved();
       } else {
         const created = await api("/events", { method: "POST", body: { ...body, status } });
-        onSaved(created);
+        if (canSplit && split) {
+          try {
+            const r = await api(`/events/${created.id}/split-days`, { method: "POST" });
+            onSaved(r.events?.[0] ?? created);
+          } catch (err) {
+            setCreatedId(created.id);
+            setError(`The event was saved, but it could not be split into days: ${errorText(err)}`);
+          }
+        } else {
+          onSaved(created);
+        }
       }
     } catch (err) {
       setError(errorText(err));
@@ -95,6 +109,19 @@ export default function EventForm({ event, onSaved, onCancel }) {
           <textarea id={`${id}-notes`} rows={3} value={f.notes} onChange={set("notes")} />
         </div>
       </div>
+      {span && (
+        <>
+          <label className="check">
+            <input type="checkbox" checked={canSplit && split} disabled={!canSplit || busy || createdId !== null} onChange={(e) => setSplit(e.target.checked)} />
+            Take attendance each day — makes one register per day ({span.days} days)
+          </label>
+          {span.tooLong ? (
+            <p className="muted">Days can only be split for events of up to {MAX_SPLIT_DAYS} days.</p>
+          ) : (
+            !span.timesOk && <p className="muted">Each day uses the same start and end times, so the end time can't be earlier than the start time.</p>
+          )}
+        </>
+      )}
       {!event && (
         <fieldset className="groups-pick">
           <legend>Save as</legend>
@@ -114,11 +141,12 @@ export default function EventForm({ event, onSaved, onCancel }) {
         </p>
       )}
       <div className="row-actions">
-        <button type="submit" className="primary" disabled={busy}>
+        <button type="submit" className="primary" disabled={busy || createdId !== null}>
           {busy ? "Saving…" : event ? "Save changes" : status === "draft" ? "Save as draft" : "Save as scheduled"}
         </button>
+        {createdId !== null && <a href={`#events?id=${createdId}`}>Open the event</a>}
         <button type="button" onClick={onCancel}>
-          Cancel
+          {createdId !== null ? "Close" : "Cancel"}
         </button>
       </div>
     </form>

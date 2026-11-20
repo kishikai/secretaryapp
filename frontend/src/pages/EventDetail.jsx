@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
-import { errorText, formatEventWhen } from "../format.js";
+import { daySpan, errorText, formatDayShort, formatEventWhen } from "../format.js";
 import Attendees from "./Attendees.jsx";
 import EventForm from "./EventForm.jsx";
 import Register from "./Register.jsx";
@@ -27,7 +27,7 @@ export default function EventDetail({ id, role }) {
   const [event, setEvent] = useState(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
-  const [confirm, setConfirm] = useState(null); // "cancelled" | "completed" | "delete" | null
+  const [confirm, setConfirm] = useState(null); // "cancelled" | "completed" | "delete" | "split" | null
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
 
@@ -78,6 +78,15 @@ export default function EventDetail({ id, role }) {
       goToEvent(null);
     });
 
+  const split = () =>
+    run(async () => {
+      const r = await api(`/events/${event.id}/split-days`, { method: "POST" });
+      const first = r.events?.[0]?.id ?? event.id;
+      // Day 1 is this same event, so the address doesn't change: reload it to show the days.
+      if (String(first) === String(event.id)) await load();
+      else goToEvent(first);
+    });
+
   const back = (
     <p>
       <a href="#events">← All events</a>
@@ -100,7 +109,17 @@ export default function EventDetail({ id, role }) {
   }
 
   const open = event.status === "draft" || event.status === "scheduled";
-  const confirmInfo = confirm && CONFIRMS[confirm];
+  const series = event.series ?? [];
+  const inSeries = series.length >= 2;
+  const dayNumber = series.findIndex((d) => String(d.id) === String(event.id)) + 1;
+  const span = !inSeries ? daySpan(event.starts_at, event.ends_at) : null;
+  const finalised = Boolean(event.finalized_at);
+  const attendanceStarted = finalised || (event.attendees ?? []).some((a) => a.status !== "not_recorded");
+  const splittable = Boolean(span) && open && !attendanceStarted;
+  const confirmInfo =
+    confirm === "split"
+      ? { ask: `This splits the event into ${span?.days} daily events, each with its own register and the same expected list. Continue?`, yes: "Yes, split into days" }
+      : confirm && CONFIRMS[confirm];
 
   return (
     <>
@@ -111,6 +130,25 @@ export default function EventDetail({ id, role }) {
         </h1>
         <StatusChip status={event.status} />
       </div>
+
+      {inSeries && (
+        <section className="days" aria-label="Days of this event">
+          <p className="muted">
+            Day {dayNumber} of {series.length}
+          </p>
+          <ul>
+            {series.map((d, i) => (
+              <li key={d.id}>
+                <a href={`#events?id=${d.id}`} aria-current={String(d.id) === String(event.id) ? "page" : undefined}>
+                  Day {i + 1} · {formatDayShort(d.starts_at)}
+                </a>
+                <StatusChip status={d.status} />
+                {d.finalized && <span className="chip ok">Finalised</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {editing ? (
         <EventForm
@@ -139,9 +177,9 @@ export default function EventDetail({ id, role }) {
                 <span className="confirm">
                   <button
                     type="button"
-                    className="danger"
+                    className={confirm === "split" ? "primary" : "danger"}
                     disabled={busy}
-                    onClick={() => (confirm === "delete" ? remove() : setStatus(confirm))}
+                    onClick={() => (confirm === "delete" ? remove() : confirm === "split" ? split() : setStatus(confirm))}
                   >
                     {confirmInfo.yes}
                   </button>
@@ -166,6 +204,11 @@ export default function EventDetail({ id, role }) {
                       Cancel event
                     </button>
                   )}
+                  {splittable && (
+                    <button type="button" disabled={busy} onClick={() => setConfirm("split")}>
+                      Take attendance each day
+                    </button>
+                  )}
                   <button type="button" disabled={busy} onClick={duplicate}>
                     Duplicate
                   </button>
@@ -186,6 +229,9 @@ export default function EventDetail({ id, role }) {
               {confirmInfo.ask}
             </p>
           )}
+          {canEdit && span && open && attendanceStarted && !confirmInfo && (
+            <p className="muted">Attendance has started, so this event can't be split into days.</p>
+          )}
           {actionError && (
             <p role="alert" className="error">
               {actionError}
@@ -194,7 +240,7 @@ export default function EventDetail({ id, role }) {
         </section>
       )}
 
-      <Attendees event={event} canEdit={canEdit && open} onChanged={load} />
+      <Attendees event={event} canEdit={canEdit && open} inSeries={inSeries} onChanged={load} />
 
       {(event.status === "scheduled" || event.status === "completed") && <Register event={event} role={role} onChanged={load} />}
       {event.status === "draft" && <p className="muted">Schedule the event to take attendance.</p>}

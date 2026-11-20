@@ -120,7 +120,7 @@ function AddPeople({ event, onAdded, onClose }) {
   );
 }
 
-export default function Attendees({ event, canEdit, onChanged }) {
+export default function Attendees({ event, canEdit, inSeries, onChanged }) {
   const [picking, setPicking] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -164,6 +164,7 @@ export default function Attendees({ event, canEdit, onChanged }) {
   return (
     <section className="card" aria-labelledby="attendees-h">
       <h2 id="attendees-h">Expected attendees ({list.length})</h2>
+      {canEdit && inSeries && <p className="muted">Each day has its own list. Changes here only affect this day.</p>}
       {canEdit && (
         <>
           <AddGroup event={event} onAdded={added} />

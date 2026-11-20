@@ -1,6 +1,6 @@
 import re
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
@@ -114,7 +114,7 @@ EVENT_SELECT = (
 
 def event_out(row: sqlite3.Row) -> dict:
     return {key: row[key] for key in ("id", "name", "starts_at", "ends_at", "location", "category",
-                                      "notes", "status", "expected_count")}
+                                      "notes", "status", "expected_count", "series_id")}
 
 
 def get_event(conn: sqlite3.Connection, event_id: int) -> dict:
@@ -151,6 +151,13 @@ def get_event(conn: sqlite3.Connection, event_id: int) -> dict:
         "finalized_at": row["finalized_at"],
         "finalized_by": finalized_by[0] if finalized_by else None,
         "attendees": attendees,
+        "series": [] if row["series_id"] is None else [
+            {"id": r["id"], "name": r["name"], "starts_at": r["starts_at"], "ends_at": r["ends_at"],
+             "status": r["status"], "finalized": r["finalized_at"] is not None}
+            for r in conn.execute(
+                "SELECT * FROM events WHERE series_id = ? ORDER BY starts_at, id", (row["series_id"],)
+            )
+        ],
     }
 
 
@@ -268,6 +275,60 @@ def update_event(event_id: int, request: Request, changes: dict[str, Any] = Body
              merged.notes, merged.status, event_id),
         )
         return get_event(conn, event_id)
+
+
+MAX_DAYS = 31
+
+
+@router.post("/events/{event_id}/split-days", status_code=201, dependencies=[Depends(require_editor)])
+def split_days(event_id: int, request: Request):
+    """Take a long event day by day: the event becomes day 1 and each later day becomes a linked
+    event with the same times of day and expected list, so every day has its own register."""
+    with connect(request.app.state.db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        event = get_event(conn, event_id)
+        if event["series"]:
+            raise HTTPException(409, "This event is already taken day by day")
+        if event["status"] not in ("draft", "scheduled") or event["finalized_at"]:
+            raise HTTPException(409, f"A {event['status']} event can't be split into days")
+        if any(a["status"] != "not_recorded" for a in event["attendees"]):
+            raise HTTPException(409, "Attendance has started, so this event can't be split into days")
+        start, end = event["starts_at"], event["ends_at"]
+        first, last = date.fromisoformat(start[:10]), date.fromisoformat((end or start)[:10])
+        days = (last - first).days + 1
+        if days < 2:
+            raise HTTPException(422, "Only events that run over more than one day can be split into days")
+        if days > MAX_DAYS:
+            raise HTTPException(422, f"An event can be split into at most {MAX_DAYS} days")
+        start_time, end_time = start[11:], end[11:]
+        if end_time < start_time:
+            raise HTTPException(422, "Each day would end before it starts; check the start and end times")
+        base = event["name"]
+        ids = []
+        for number in range(days):
+            day = (first + timedelta(days=number)).isoformat()
+            name = f"{base} (day {number + 1} of {days})"
+            if number == 0:
+                conn.execute(
+                    "UPDATE events SET name = ?, ends_at = ?, series_id = ?, "
+                    "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+                    (name, f"{day}T{end_time}", event_id, event_id),
+                )
+                ids.append(event_id)
+                continue
+            cursor = conn.execute(
+                "INSERT INTO events (name, starts_at, ends_at, location, category, notes, status, series_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, f"{day}T{start_time}", f"{day}T{end_time}", event["location"], event["category"],
+                 event["notes"], event["status"], event_id),
+            )
+            conn.execute(
+                "INSERT INTO event_attendees (event_id, member_id) SELECT ?, member_id FROM event_attendees "
+                "WHERE event_id = ?",
+                (cursor.lastrowid, event_id),
+            )
+            ids.append(cursor.lastrowid)
+        return {"events": [get_event(conn, i) for i in ids]}
 
 
 @router.post("/events/{event_id}/duplicate", status_code=201, dependencies=[Depends(require_editor)])

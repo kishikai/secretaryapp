@@ -67,6 +67,23 @@ export function formatEventWhen(start, end) {
   return `${s.day}, ${s.time} – ${e.day}, ${e.time}`;
 }
 
+// "Sat 5 Dec" for a local event time.
+export function formatDayShort(value) {
+  const s = splitLocal(value);
+  return s ? s.day.replace(/ \d{4}$/, "") : "";
+}
+
+// For an event whose end DATE is after its start date: how many calendar days it covers, and whether the
+// daily end time is not before the daily start time (needed to split it into one event per day). Else null.
+export const MAX_SPLIT_DAYS = 31;
+export function daySpan(start, end) {
+  const s = splitLocal(start);
+  const e = splitLocal(end);
+  if (!s || !e || e.date <= s.date) return null;
+  const days = Math.round((Date.parse(`${e.date}T00:00:00Z`) - Date.parse(`${s.date}T00:00:00Z`)) / 86400000) + 1;
+  return { days, timesOk: e.time >= s.time, tooLong: days > MAX_SPLIT_DAYS };
+}
+
 // Value for <input type="datetime-local">.
 export const toLocalInput = (value) => (splitLocal(value) ? String(value).slice(0, 16).replace(" ", "T") : "");
 

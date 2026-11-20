@@ -163,6 +163,9 @@ ATTENDANCE_COLUMNS = {
     "events": {
         "finalized_at": "TEXT",
         "finalized_by": "INTEGER REFERENCES admins(id)",
+        # v0.13: the first day's id when a long event is taken day by day. No REFERENCES, so a
+        # draft first day can still be deleted.
+        "series_id": "INTEGER",
     },
 }
 ATTENDANCE_SCHEMA = """
