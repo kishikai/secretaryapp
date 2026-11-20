@@ -13,6 +13,9 @@ import Evidence from "./pages/Evidence.jsx";
 import Announcements from "./pages/Announcements.jsx";
 
 // secretaryOnly tabs call endpoints that answer 403 to other roles; editorOnly tabs are hidden from viewers.
+// Tabs switched off for this deployment. Remove an id to bring its tab back; the features stay in the app.
+const HIDDEN_TABS = ["announcements", "messages", "notifications", "rules"];
+
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "members", label: "Members" },
@@ -46,7 +49,7 @@ function useHashTab(tabs) {
 function Shell({ user, onSignOut }) {
   const isSecretary = user.role === "secretary";
   const isViewer = user.role === "viewer";
-  const tabs = useMemo(() => TABS.filter((t) => (isSecretary || !t.secretaryOnly) && (!isViewer || !t.editorOnly)), [isSecretary, isViewer]);
+  const tabs = useMemo(() => TABS.filter((t) => !HIDDEN_TABS.includes(t.id) && (isSecretary || !t.secretaryOnly) && (!isViewer || !t.editorOnly)), [isSecretary, isViewer]);
   const { id: tab, params } = useHashTab(tabs);
   const [unread, setUnread] = useState(0);
   const [collectorOffline, setCollectorOffline] = useState(false);
@@ -61,7 +64,8 @@ function Shell({ user, onSignOut }) {
   }, []);
 
   useEffect(() => {
-    if (!isSecretary) return undefined; // /stats is secretary-only
+    // /stats is secretary-only, and the count is only shown on the Notifications tab.
+    if (!isSecretary || HIDDEN_TABS.includes("notifications")) return undefined;
     refreshUnread();
     const id = setInterval(() => {
       if (!document.hidden) refreshUnread();
