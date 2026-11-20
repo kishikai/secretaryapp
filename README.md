@@ -244,6 +244,18 @@ Each expected person has one status: `not_recorded` (default), `present`, `late`
 | GET | `/members/{id}/attendance` | any | A member's totals and every event they were expected at, with `counted` showing which rows make up the totals |
 | GET | `/dashboard` | any | Member and group counts, upcoming events, registers still to finish, and absences over the last 90 days |
 
+## Message evidence review
+
+Messages are only evidence: nothing changes a register until the secretary approves, and a missing message never means someone was absent. The review queue lists recent messages (the newest 2000 are scanned) that mention attendance, such as "running late", "apologies, can't make it" or "I'm here". For each one it suggests a person (the sender's name matches exactly one active member), an event (one on or up to a week after the message's date, preferring one the person is expected at, or the day before) and a status, and says why. Suggestions are worked out when the queue is read and never stored.
+
+Approving sets that person's status through the same audited path as the register, with the message linked in the change history (`attendance_audit.evidence_id`). A finalised register is never changed: reopen it first. Rejecting changes nothing. Either decision is kept in `evidence_reviews` with the message text as it was reviewed. Secretary only.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/evidence?state=pending\|approved\|rejected` | The queue (max 200, newest first) with suggestions and any decision |
+| POST | `/evidence/{message_id}/approve` | `{"member_id", "event_id", "status", "note"}`. 409 if already reviewed, the event is draft or cancelled, or the register is finalised; 422 if the person isn't expected |
+| POST | `/evidence/{message_id}/reject` | `{"note"}` (optional) |
+
 ## Backups
 
 `backend/app/backup.py` takes a consistent copy of the database using SQLite's online backup, so it is safe while the server is running. Uncommitted writes are not included. The copy is written to a temporary `.partial` file, checked with `PRAGMA integrity_check`, and only then renamed to `secretary-YYYYMMDDTHHMMSS-ffffffZ.db` (UTC). Afterwards only the newest `--keep` files named `secretary-*.db` in the backup directory are kept; other files are never touched.
@@ -346,6 +358,7 @@ All changes are applied automatically on start-up; existing databases are migrat
 - v0.10 (Phase 2): new tables `events` (`status` limited to draft, scheduled, completed, cancelled; index `idx_events_starts_at`) and `event_attendees` (primary key `event_id, member_id`; cascades when an event is deleted). Created on start-up if missing.
 
 - v0.11 (Phase 3): `event_attendees` gains `status`, `recorded_at` and `recorded_by`; `events` gains `finalized_at` and `finalized_by`; new table `attendance_audit` (index `idx_attendance_audit_event`). Existing expected attendees start as `not_recorded`.
+- v0.12 (Phase 5): new table `evidence_reviews` (one decision per message); `attendance_audit` gains `evidence_id`.
 
 ## Frontend
 

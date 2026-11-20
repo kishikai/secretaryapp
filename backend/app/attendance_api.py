@@ -56,22 +56,39 @@ def locked_event(conn: sqlite3.Connection, event_id: int) -> sqlite3.Row:
     return event
 
 
-def audit(conn, event_id, user, action, member_id=None, old=None, new=None, reason=None) -> None:
+def audit(conn, event_id, user, action, member_id=None, old=None, new=None, reason=None, evidence_id=None) -> None:
     conn.execute(
-        "INSERT INTO attendance_audit (event_id, member_id, action, old_status, new_status, reason, actor_id, actor) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (event_id, member_id, action, old, new, reason, user["id"], user["username"]),
+        "INSERT INTO attendance_audit "
+        "(event_id, member_id, action, old_status, new_status, reason, actor_id, actor, evidence_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (event_id, member_id, action, old, new, reason, user["id"], user["username"], evidence_id),
     )
+
+
+def check_recordable(event: sqlite3.Row) -> None:
+    if event["status"] not in ("scheduled", "completed"):
+        raise HTTPException(409, f"Attendance can't be taken for a {event['status']} event")
+    if event["finalized_at"]:
+        raise HTTPException(409, "The register is finalised; a secretary must reopen it first")
+
+
+def set_status(conn, event_id, member_id, old, new, user, reason=None, evidence_id=None) -> None:
+    """Write one person's status and its audit row; callers have already run check_recordable."""
+    if old == new:
+        return
+    conn.execute(
+        f"UPDATE event_attendees SET status = ?, recorded_at = {NOW}, recorded_by = ? "
+        "WHERE event_id = ? AND member_id = ?",
+        (new, user["id"], event_id, member_id),
+    )
+    audit(conn, event_id, user, "record", member_id, old, new, reason, evidence_id)
 
 
 @router.put("/events/{event_id}/attendance")
 def record_attendance(event_id: int, body: AttendanceIn, request: Request, user=Depends(require_editor)):
     with connect(request.app.state.db_path) as conn:
         event = locked_event(conn, event_id)
-        if event["status"] not in ("scheduled", "completed"):
-            raise HTTPException(409, f"Attendance can't be taken for a {event['status']} event")
-        if event["finalized_at"]:
-            raise HTTPException(409, "The register is finalised; a secretary must reopen it first")
+        check_recordable(event)
         current = dict(conn.execute(
             "SELECT member_id, status FROM event_attendees WHERE event_id = ?", (event_id,)
         ).fetchall())
@@ -80,14 +97,7 @@ def record_attendance(event_id: int, body: AttendanceIn, request: Request, user=
             raise HTTPException(422, f"Not on this event's expected list: member id {', '.join(map(str, missing))}")
         wanted = {r.member_id: r.status for r in body.records}  # a repeated id: the last one wins
         for member_id, status in wanted.items():
-            if current[member_id] == status:
-                continue
-            conn.execute(
-                f"UPDATE event_attendees SET status = ?, recorded_at = {NOW}, recorded_by = ? "
-                "WHERE event_id = ? AND member_id = ?",
-                (status, user["id"], event_id, member_id),
-            )
-            audit(conn, event_id, user, "record", member_id, current[member_id], status, body.reason)
+            set_status(conn, event_id, member_id, current[member_id], status, user, body.reason)
         return get_event(conn, event_id)
 
 
@@ -137,7 +147,8 @@ def audit_trail(event_id: int, request: Request):
         if conn.execute("SELECT 1 FROM events WHERE id = ?", (event_id,)).fetchone() is None:
             raise HTTPException(404, "Event not found")
         rows = conn.execute(
-            "SELECT a.id, a.at, a.actor, a.action, a.member_id, m.full_name, a.old_status, a.new_status, a.reason "
+            "SELECT a.id, a.at, a.actor, a.action, a.member_id, m.full_name, a.old_status, a.new_status, a.reason, "
+            "a.evidence_id "
             "FROM attendance_audit a LEFT JOIN members m ON m.id = a.member_id "
             "WHERE a.event_id = ? ORDER BY a.id DESC",
             (event_id,),

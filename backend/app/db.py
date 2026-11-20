@@ -181,6 +181,23 @@ CREATE TABLE IF NOT EXISTS attendance_audit (
 CREATE INDEX IF NOT EXISTS idx_attendance_audit_event ON attendance_audit (event_id, id);
 """
 
+# v0.12 (Phase 5): a secretary's decision on a message as attendance evidence. Messages are only ever
+# evidence: nothing changes a register until a secretary approves (decision 4 of the change plan).
+EVIDENCE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS evidence_reviews (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id),
+    state TEXT NOT NULL CHECK (state IN ('approved', 'rejected')),
+    message_text TEXT NOT NULL,  -- the text as reviewed; a message's text can be upgraded later
+    member_id INTEGER REFERENCES members(id),
+    event_id INTEGER REFERENCES events(id),
+    status TEXT CHECK (status IN ('present', 'late', 'absent', 'excused')),
+    note TEXT,
+    reviewer_id INTEGER REFERENCES admins(id),
+    reviewer TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+"""
+
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
 
@@ -257,3 +274,6 @@ def init_db(db_path: str) -> None:
                 if column not in have:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         conn.executescript(ATTENDANCE_SCHEMA)
+        if "evidence_id" not in {row["name"] for row in conn.execute("PRAGMA table_info(attendance_audit)")}:
+            conn.execute("ALTER TABLE attendance_audit ADD COLUMN evidence_id INTEGER REFERENCES messages(id)")
+        conn.executescript(EVIDENCE_SCHEMA)
