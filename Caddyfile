@@ -1,0 +1,5 @@
+# A domain name gets an HTTPS certificate automatically. See docs/deploy.md.
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy app:8000
+}

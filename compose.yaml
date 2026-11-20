@@ -1,0 +1,31 @@
+# docker compose up -d --build   (settings come from .env; copy .env.example first)
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      SECRETARY_COOKIE_SECURE: "${SECRETARY_COOKIE_SECURE:-1}"
+    volumes:
+      - secretary_data:/data
+      - secretary_backups:/backups
+    # No published port: only Caddy reaches the app.
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: "${SITE_ADDRESS:?Set SITE_ADDRESS in .env}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  secretary_data:
+  secretary_backups:
+  caddy_data:
+  caddy_config:

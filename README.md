@@ -2,7 +2,7 @@
 
 Attendance and event management for a club or society's secretary: members and groups, events with expected attendees, attendance registers with an audit trail, absence figures, reports, and announcements to paste into Messenger. Messages from authorised Messenger group chats (by clipboard or OCR of screenshots) can be reviewed as evidence, but nothing changes a register without the secretary's approval.
 
-**Secretaries start with [docs/secretary-guide.md](docs/secretary-guide.md).** The rest of this README is for whoever installs and runs the app.
+**Secretaries start with [docs/secretary-guide.md](docs/secretary-guide.md).** To put it on a server, see [docs/deploy.md](docs/deploy.md) (Docker, private on Tailscale or public with HTTPS). The rest of this README is for developers.
 
 Only process content you are authorised to see. The project does not automate Messenger through unsupported interfaces.
 
