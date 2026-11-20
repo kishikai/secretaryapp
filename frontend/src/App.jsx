@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, onUnauthorized } from "./api.js";
 import Login from "./pages/Login.jsx";
 import Overview from "./pages/Overview.jsx";
@@ -12,6 +12,39 @@ import Absences from "./pages/Absences.jsx";
 import Evidence from "./pages/Evidence.jsx";
 import Announcements from "./pages/Announcements.jsx";
 import { HIDDEN_TABS, MESSAGES_ENABLED } from "./features.js";
+
+// Simple 24px line icons for the phone tab bar (decorative: every tab also has its text label).
+const ICONS = {
+  overview: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
+  members: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4 3.6-6 8-6s8 2 8 6" />
+    </>
+  ),
+  groups: (
+    <>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5" />
+      <circle cx="17" cy="9" r="2.75" />
+      <path d="M17.5 14.6c2.6.3 4.5 2 4.5 5.4" />
+    </>
+  ),
+  events: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4M8 15l2.5 2.5L16 13" />
+    </>
+  ),
+  absences: <path d="M4 21V11M10 21V5M16 21v-6M21 21H3" />,
+};
+const TabIcon = ({ id }) => (
+  <svg className="tab-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
+    {ICONS[id] ?? <circle cx="12" cy="12" r="3" />}
+  </svg>
+);
+// A bottom tab bar on phones holds at most five tabs; with more, the phone keeps the scrolling top strip.
+const MAX_BOTTOM_TABS = 5;
 
 // secretaryOnly tabs call endpoints that answer 403 to other roles; editorOnly tabs are hidden from viewers.
 
@@ -99,6 +132,21 @@ function Shell({ user, onSignOut }) {
     document.title = `${label} · Secretary`;
   }, [tab, tabs]);
 
+  // Moving between tabs puts focus on the new page's heading, so screen readers announce it.
+  // Detail views (an event, a member) focus their own heading once loaded.
+  const firstTab = useRef(true);
+  useEffect(() => {
+    if (firstTab.current) {
+      firstTab.current = false;
+      return;
+    }
+    const h = document.querySelector("#main h1");
+    if (h) {
+      if (!h.hasAttribute("tabindex")) h.setAttribute("tabindex", "-1");
+      h.focus({ preventScroll: false });
+    }
+  }, [tab]);
+
   return (
     <>
       <a className="skip-link" href="#main">
@@ -107,12 +155,13 @@ function Shell({ user, onSignOut }) {
       <header className="app-header">
         <div className="app-header-inner">
           <span className="brand">Secretary</span>
-          <nav aria-label="Main">
+          <nav aria-label="Main" className={tabs.length <= MAX_BOTTOM_TABS ? "has-bottom-tabs" : undefined}>
             <ul className="tabs">
               {tabs.map((t) => (
                 <li key={t.id}>
                   <a href={`#${t.id}`} aria-current={tab === t.id ? "page" : undefined}>
-                    {t.label}
+                    <TabIcon id={t.id} />
+                    <span className="tab-label">{t.label}</span>
                     {t.id === "notifications" && unread > 0 && (
                       <span className="badge">
                         {unread}
