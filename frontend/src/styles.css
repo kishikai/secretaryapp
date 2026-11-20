@@ -1462,10 +1462,10 @@ input::-webkit-date-and-time-value {
     padding-bottom: var(--bottom-nav-h);
   }
   /* Android raises fixed bars above the keyboard; hide the tabs while typing so they don't cover the field. */
-  :root:has(nav.has-bottom-tabs):has(input:focus, textarea:focus, select:focus) {
+  :root:has(nav.has-bottom-tabs):has(input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus) {
     --bottom-nav-h: 0px;
   }
-  body:has(input:focus, textarea:focus, select:focus) nav.has-bottom-tabs {
+  body:has(input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus) nav.has-bottom-tabs {
     display: none;
   }
 }

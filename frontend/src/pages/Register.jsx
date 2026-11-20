@@ -2,7 +2,6 @@ import { useEffect, useId, useState } from "react";
 import { api } from "../api.js";
 import { errorText, formatTime, plural } from "../format.js";
 
-const STATUSES = ["present", "late", "late_excused", "absent", "absent_excused", "not_recorded"];
 const LABELS = {
   not_recorded: "Not recorded",
   present: "Present",
@@ -11,7 +10,7 @@ const LABELS = {
   absent: "Absent",
   absent_excused: "Absent (excused)",
 };
-const COUNT_ORDER = STATUSES;
+const COUNT_ORDER = ["not_recorded", "present", "late", "late_excused", "absent", "absent_excused"];
 // "excused" was retired; the change history may still contain it.
 const label = (s) => (s === "excused" ? "Excused" : (LABELS[s] ?? "Not recorded"));
 
@@ -68,17 +67,38 @@ function History({ eventId, refreshKey }) {
   );
 }
 
-function StatusPicker({ name, person, value, disabled, onChange }) {
+// Three main buttons plus an "Excused" tick map onto the six API statuses.
+const MAIN = [
+  { key: "present", text: "Present" },
+  { key: "late", text: "Late" },
+  { key: "absent", text: "Absent" },
+];
+const mainOf = (s) => (s === "present" ? "present" : s === "late" || s === "late_excused" ? "late" : s === "absent" || s === "absent_excused" ? "absent" : null);
+const isExcused = (s) => s === "late_excused" || s === "absent_excused";
+
+function AttendanceControls({ person, value, disabled, onChange }) {
+  const main = mainOf(value);
+  const excused = isExcused(value);
+  const choose = (key) => {
+    if (main === key) onChange("not_recorded");
+    else if (key === "present") onChange("present");
+    else onChange(excused ? `${key}_excused` : key);
+  };
+  const canExcuse = (main === "late" || main === "absent") && !disabled;
   return (
-    <fieldset className="status-pick">
-      <legend className="sr-only">Attendance for {person}</legend>
-      {STATUSES.map((s) => (
-        <label key={s} className={`seg st-${s}${value === s ? " on" : ""}`}>
-          <input type="radio" name={name} className="sr-only" value={s} checked={value === s} disabled={disabled} onChange={() => onChange(s)} />
-          <span>{LABELS[s]}</span>
-        </label>
+    <div className="reg-controls" role="group" aria-label={`Attendance for ${person}`}>
+      {MAIN.map((m) => (
+        <button key={m.key} type="button" className={`reg-btn st-${m.key}`} aria-pressed={main === m.key} disabled={disabled} onClick={() => choose(m.key)}>
+          {m.text}
+        </button>
       ))}
-    </fieldset>
+      <label className={`reg-excused${canExcuse ? "" : " is-off"}`}>
+        <input type="checkbox" checked={excused} disabled={!canExcuse} onChange={(e) => onChange(e.target.checked ? `${main}_excused` : main)} />
+        <span>
+          Excused<span className="sr-only"> ({person})</span>
+        </span>
+      </label>
+    </div>
   );
 }
 
@@ -91,6 +111,7 @@ export default function Register({ event, role, onChanged }) {
 
   const [edits, setEdits] = useState({}); // member_id -> status, only where it differs from the saved value
   const [reason, setReason] = useState("");
+  const [noteOpen, setNoteOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(null); // one status, or null for everyone
   const [step, setStep] = useState(null); // "finalize" | "reopen" | null
@@ -104,6 +125,30 @@ export default function Register({ event, role, onChanged }) {
   const effective = (a) => (finalised ? saved(a) : (edits[a.member_id] ?? saved(a)));
   const changes = attendees.filter((a) => edits[a.member_id] !== undefined && edits[a.member_id] !== saved(a));
   const unsaved = changes.length;
+
+  // While there is unsaved work, warn before the page closes and before any in-app link (tabs, "All events", day links) leaves it.
+  useEffect(() => {
+    if (unsaved === 0) return undefined;
+    const onUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    const onClick = (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = e.target instanceof Element ? e.target.closest('a[href^="#"]') : null;
+      if (!a || a.classList.contains("skip-link") || a.getAttribute("href") === window.location.hash) return;
+      if (!window.confirm(`You have ${plural(unsaved, "unsaved attendance change", "unsaved attendance changes")}. Leave without saving?`)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", onUnload);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      document.removeEventListener("click", onClick, true);
+    };
+  }, [unsaved]);
 
   const counts = Object.fromEntries(COUNT_ORDER.map((s) => [s, 0]));
   for (const a of attendees) counts[effective(a)] = (counts[effective(a)] ?? 0) + 1;
@@ -138,6 +183,7 @@ export default function Register({ event, role, onChanged }) {
       await request();
       setEdits({});
       setReason("");
+      setNoteOpen(false);
       setReopenReason("");
       setStep(null);
       await onChanged();
@@ -172,14 +218,24 @@ export default function Register({ event, role, onChanged }) {
   const noneText = !statusFilter ? "No one on the list matches that name." : needle ? "No one matches." : `No one is ${filterName}.`;
   const editable = canRecord && !finalised;
   const notRecorded = counts.not_recorded;
+  const showBar = editable && attendees.length > 0;
 
   let finaliseWhy = "";
   if (attendees.length === 0) finaliseWhy = "Add people to the expected list first.";
-  else if (unsaved > 0) finaliseWhy = "Save your progress before finalising.";
-  else if (notRecorded > 0) finaliseWhy = `${plural(notRecorded, "person is", "people are")} still not recorded. Everyone needs a status before you can finalise.`;
+  else if (unsaved > 0) finaliseWhy = "Save your changes first.";
+  else if (notRecorded > 0) finaliseWhy = `${plural(notRecorded, "person is", "people are")} not recorded yet.`;
+
+  const statusText =
+    unsaved > 0 ? plural(unsaved, "unsaved change", "unsaved changes") : notice || (isSecretary && !finaliseWhy ? "Ready to finalise" : "All changes saved");
+
+  const errorEl = error && (
+    <p role="alert" className="error reg-msg">
+      {error}
+    </p>
+  );
 
   return (
-    <section className="card" aria-labelledby={`${uid}-h`}>
+    <section className="card register-card" aria-labelledby={`${uid}-h`}>
       <h2 id={`${uid}-h`}>Register</h2>
 
       {finalised && (
@@ -188,12 +244,25 @@ export default function Register({ event, role, onChanged }) {
         </p>
       )}
 
-      <div className="toolbar">
-        <a className="button" href={`/exports/events/${encodeURIComponent(event.id)}/register.csv`} download>
-          Download attendance sheet
-        </a>
-        {unsaved > 0 && <small className="muted">Save first: the sheet shows saved statuses.</small>}
-      </div>
+      {attendees.length > 0 && (
+        <div className="reg-tools">
+          <input
+            id={`${uid}-search`}
+            aria-label="Search the register"
+            type="search"
+            enterKeyHint="search"
+            autoComplete="off"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Find a name"
+          />
+          {editable && (
+            <button type="button" disabled={busy || notRecorded === 0} onClick={markRestPresent}>
+              Mark the rest present
+            </button>
+          )}
+        </div>
+      )}
 
       <ul className="register-counts" aria-label="Totals">
         {COUNT_ORDER.map((s) => (
@@ -209,10 +278,6 @@ export default function Register({ event, role, onChanged }) {
         <p className="empty">No one is on the expected list yet.</p>
       ) : (
         <>
-          <div className="field">
-            <label htmlFor={`${uid}-search`}>Search the register</label>
-            <input id={`${uid}-search`} type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Type a name" />
-          </div>
           {statusFilter && (
             <p role="status" className="muted filter-line">
               Showing {shown.length} {filterName} ·{" "}
@@ -221,33 +286,20 @@ export default function Register({ event, role, onChanged }) {
               </button>
             </p>
           )}
-          {editable && (
-            <div className="row-actions" style={{ marginTop: 0, marginBottom: "0.5rem" }}>
-              <button type="button" disabled={busy || notRecorded === 0} onClick={markRestPresent}>
-                Mark everyone not yet recorded as present
-              </button>
-            </div>
-          )}
           {shown.length === 0 && <p className="empty">{noneText}</p>}
-          <ul className="attendees">
+          <ul className="reg-list">
             {shown.map((a) => {
               const value = effective(a);
               const changed = editable && edits[a.member_id] !== undefined;
               return (
-                <li key={a.member_id} className="attendee register-row">
-                  <div className="who">
+                <li key={a.member_id} className={`reg-row${editable ? " is-edit" : ""}`}>
+                  <div className="reg-who">
                     <strong>{a.full_name}</strong>
-                    {!a.active && (
-                      <>
-                        {" "}
-                        <span className="chip">Inactive</span>
-                      </>
-                    )}
-                    {changed && <span className="muted"> · changed, not saved</span>}
-                    {a.recorded_by && !changed && <div className="meta">recorded by {a.recorded_by}</div>}
+                    {!a.active && <span className="chip">Inactive</span>}
+                    {changed && <span className="reg-unsaved">unsaved</span>}
                   </div>
                   {editable ? (
-                    <StatusPicker name={`${uid}-${a.member_id}`} person={a.full_name} value={value} disabled={busy} onChange={(s) => setOne(a, s)} />
+                    <AttendanceControls person={a.full_name} value={value} disabled={busy} onChange={(s) => setOne(a, s)} />
                   ) : (
                     <span className={`chip st-${value}`}>{label(value)}</span>
                   )}
@@ -256,54 +308,6 @@ export default function Register({ event, role, onChanged }) {
             })}
           </ul>
         </>
-      )}
-
-      {editable && attendees.length > 0 && (
-        <>
-          <div className="field">
-            <label htmlFor={`${uid}-reason`}>Note for the history (optional)</label>
-            <input id={`${uid}-reason`} type="text" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="For example: late arrivals added from the sign-in sheet" />
-          </div>
-          <div className="row-actions">
-            <button type="button" className="primary" disabled={busy || unsaved === 0} onClick={save}>
-              {busy ? "Saving…" : "Save progress"}
-            </button>
-            <span role="status" className="muted">
-              {unsaved > 0 ? `${plural(unsaved, "unsaved change", "unsaved changes")}` : ""}
-            </span>
-          </div>
-        </>
-      )}
-
-      {isSecretary && !finalised && attendees.length > 0 && (
-        <div className="finalise">
-          {step === "finalize" ? (
-            <>
-              <p role="status">Finalising locks the register. Continue?</p>
-              <div className="row-actions">
-                <span className="confirm">
-                  <button type="button" className="danger" disabled={busy} onClick={finalise}>
-                    Yes, finalise
-                  </button>
-                  <button type="button" onClick={() => setStep(null)}>
-                    Not yet
-                  </button>
-                </span>
-              </div>
-            </>
-          ) : (
-            <div className="row-actions">
-              <button type="button" disabled={busy || Boolean(finaliseWhy)} aria-describedby={finaliseWhy ? `${uid}-why` : undefined} onClick={() => setStep("finalize")}>
-                Finalise register
-              </button>
-              {finaliseWhy && (
-                <span id={`${uid}-why`} className="muted">
-                  {finaliseWhy}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
       )}
 
       {isSecretary && finalised && (
@@ -338,18 +342,81 @@ export default function Register({ event, role, onChanged }) {
         </div>
       )}
 
-      {notice && (
-        <p role="status" className="notice">
+      {!showBar && notice && (
+        <p role="status" className="notice reg-msg">
           {notice}
         </p>
       )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {!showBar && errorEl}
 
-      <History eventId={event.id} refreshKey={refreshKey} />
+      <div className="reg-foot">
+        <History eventId={event.id} refreshKey={refreshKey} />
+        <a className="button small" href={`/exports/events/${encodeURIComponent(event.id)}/register.csv`} download>
+          Download attendance sheet
+        </a>
+        {unsaved > 0 && <small className="muted reg-hint">Save first: the sheet shows saved statuses.</small>}
+      </div>
+
+      {showBar && (
+        <div className="savebar reg-savebar">
+          {step === "finalize" ? (
+            <>
+              <p role="status" className="reg-status">
+                Finalising locks the register. Continue?
+              </p>
+              <span className="confirm reg-buttons">
+                <button type="button" className="danger" disabled={busy} onClick={finalise}>
+                  Yes, finalise
+                </button>
+                <button type="button" onClick={() => setStep(null)}>
+                  Not yet
+                </button>
+              </span>
+            </>
+          ) : (
+            <>
+              <div className="reg-top">
+                <div className="reg-status-wrap">
+                  <p role="status" className="reg-status">
+                    {statusText}
+                  </p>
+                  {isSecretary && finaliseWhy && (
+                    <p id={`${uid}-why`} className="muted reg-why">
+                      {finaliseWhy}
+                    </p>
+                  )}
+                </div>
+                <button type="button" className="text-button reg-note-toggle" aria-expanded={noteOpen} aria-controls={`${uid}-note`} onClick={() => setNoteOpen((o) => !o)}>
+                  {noteOpen ? "Hide note" : reason ? "Edit note" : "Add a note"}
+                </button>
+              </div>
+              <div className="reg-buttons">
+                <button type="button" className="primary" disabled={busy || unsaved === 0} onClick={save}>
+                  {busy ? "Saving…" : "Save"}
+                </button>
+                {isSecretary && (
+                  <button type="button" disabled={busy || Boolean(finaliseWhy)} aria-describedby={finaliseWhy ? `${uid}-why` : undefined} onClick={() => setStep("finalize")}>
+                    Finalise register
+                  </button>
+                )}
+              </div>
+              {noteOpen && (
+                <input
+                  id={`${uid}-note`}
+                  className="reg-note"
+                  type="text"
+                  aria-label="Note for the history (optional)"
+                  maxLength={500}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Note for the history (optional)"
+                />
+              )}
+            </>
+          )}
+          {errorEl}
+        </div>
+      )}
     </section>
   );
 }

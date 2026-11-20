@@ -84,7 +84,7 @@ export default function EventForm({ event, onSaved, onCancel }) {
   );
 
   return (
-    <form className="card" onSubmit={submit}>
+    <form className="card event-form" onSubmit={submit}>
       <h2 tabIndex={-1} ref={headRef}>
         {event ? (locked ? `Edit notes for ${event.name}` : `Edit ${event.name}`) : "New event"}
       </h2>

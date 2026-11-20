@@ -30,6 +30,8 @@ export default function EventDetail({ id, role }) {
   const [confirm, setConfirm] = useState(null); // "cancelled" | "completed" | "delete" | "split" | null
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const menuRef = useRef(null);
+  const keepRef = useRef(null);
 
   const load = useCallback(() => {
     return api(`/events/${encodeURIComponent(id)}`)
@@ -48,6 +50,25 @@ export default function EventDetail({ id, role }) {
     // only when the event first appears
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event === null]);
+
+  // The "More" menu closes when an item is chosen, on Escape, and on a click elsewhere.
+  const closeMenu = (refocus) => {
+    const m = menuRef.current;
+    if (m?.open) {
+      m.open = false;
+      if (refocus) m.querySelector("summary")?.focus();
+    }
+  };
+  useEffect(() => {
+    const onDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) closeMenu(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, []);
+  useEffect(() => {
+    if (confirm) keepRef.current?.focus();
+  }, [confirm]);
 
   const run = async (fn) => {
     setBusy(true);
@@ -121,33 +142,95 @@ export default function EventDetail({ id, role }) {
       ? { ask: `This splits the event into ${span?.days} daily events, each with its own register and the same expected list. Continue?`, yes: "Yes, split into days" }
       : confirm && CONFIRMS[confirm];
 
+  const when = [formatEventWhen(event.starts_at, event.ends_at), event.location, event.category].filter(Boolean);
+  const pick = (fn) => () => {
+    closeMenu(true);
+    fn();
+  };
+
   return (
     <>
-      {back}
-      <div className="item-head">
-        <h1 tabIndex={-1} ref={headRef} style={{ margin: 0 }}>
+      <p className="back-link">
+        <a href="#events">← All events</a>
+      </p>
+      <div className="page-head detail-head">
+        <h1 tabIndex={-1} ref={headRef}>
           {event.name}
         </h1>
         <StatusChip status={event.status} />
+        {canEdit && !editing && (
+          <div className="actions">
+            {event.status === "draft" && (
+              <button type="button" className="primary" disabled={busy} onClick={() => setStatus("scheduled")}>
+                Schedule
+              </button>
+            )}
+            {event.status === "scheduled" && (
+              <button type="button" className="primary" disabled={busy} onClick={() => setConfirm("completed")}>
+                Mark completed
+              </button>
+            )}
+            <button type="button" disabled={busy} onClick={() => setEditing(true)}>
+              {open ? "Edit" : "Edit notes"}
+            </button>
+            <details
+              className="menu"
+              ref={menuRef}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  closeMenu(true);
+                }
+              }}
+            >
+              <summary>More</summary>
+              <div className="menu-panel">
+                <button type="button" disabled={busy} onClick={pick(duplicate)}>
+                  Duplicate
+                </button>
+                {splittable && (
+                  <button type="button" disabled={busy} onClick={pick(() => setConfirm("split"))}>
+                    Take attendance each day
+                  </button>
+                )}
+                {open && (
+                  <button type="button" disabled={busy} onClick={pick(() => setConfirm("cancelled"))}>
+                    Cancel event
+                  </button>
+                )}
+                {event.status === "draft" && role === "secretary" && (
+                  <button type="button" className="danger" disabled={busy} onClick={pick(() => setConfirm("delete"))}>
+                    Delete
+                  </button>
+                )}
+              </div>
+            </details>
+          </div>
+        )}
       </div>
 
-      {inSeries && (
-        <section className="days" aria-label="Days of this event">
-          <p className="muted">
-            Day {dayNumber} of {series.length}
-          </p>
-          <ul>
-            {series.map((d, i) => (
-              <li key={d.id}>
-                <a href={`#events?id=${d.id}`} aria-current={String(d.id) === String(event.id) ? "page" : undefined}>
-                  Day {i + 1} · {formatDayShort(d.starts_at)}
-                </a>
-                <StatusChip status={d.status} />
-                {d.finalized && <span className="chip ok">Finalised</span>}
-              </li>
-            ))}
-          </ul>
-        </section>
+      {confirmInfo && !editing && (
+        <div className="notice confirm-box">
+          <p role="status">{confirmInfo.ask}</p>
+          <span className="confirm">
+            <button
+              type="button"
+              className={confirm === "split" ? "primary" : "danger"}
+              disabled={busy}
+              onClick={() => (confirm === "delete" ? remove() : confirm === "split" ? split() : setStatus(confirm))}
+            >
+              {confirmInfo.yes}
+            </button>
+            <button type="button" ref={keepRef} onClick={() => setConfirm(null)}>
+              Keep as it is
+            </button>
+          </span>
+        </div>
+      )}
+      {actionError && (
+        <p role="alert" className="error">
+          {actionError}
+        </p>
       )}
 
       {editing ? (
@@ -160,89 +243,39 @@ export default function EventDetail({ id, role }) {
           }}
         />
       ) : (
-        <section className="card" aria-label="Event details">
-          <dl className="facts">
-            <dt>When</dt>
-            <dd>{formatEventWhen(event.starts_at, event.ends_at)}</dd>
-            <dt>Where</dt>
-            <dd>{event.location || <span className="muted">Not set</span>}</dd>
-            <dt>Category</dt>
-            <dd>{event.category || <span className="muted">Not set</span>}</dd>
-            <dt>Notes</dt>
-            <dd className="text">{event.notes || <span className="muted">None</span>}</dd>
-          </dl>
-          {canEdit && (
-            <div className="row-actions">
-              {confirmInfo ? (
-                <span className="confirm">
-                  <button
-                    type="button"
-                    className={confirm === "split" ? "primary" : "danger"}
-                    disabled={busy}
-                    onClick={() => (confirm === "delete" ? remove() : confirm === "split" ? split() : setStatus(confirm))}
-                  >
-                    {confirmInfo.yes}
-                  </button>
-                  <button type="button" onClick={() => setConfirm(null)}>
-                    Keep as it is
-                  </button>
-                </span>
-              ) : (
-                <>
-                  {event.status === "draft" && (
-                    <button type="button" className="primary" disabled={busy} onClick={() => setStatus("scheduled")}>
-                      Schedule
-                    </button>
-                  )}
-                  {event.status === "scheduled" && (
-                    <button type="button" className="primary" disabled={busy} onClick={() => setConfirm("completed")}>
-                      Mark completed
-                    </button>
-                  )}
-                  {open && (
-                    <button type="button" disabled={busy} onClick={() => setConfirm("cancelled")}>
-                      Cancel event
-                    </button>
-                  )}
-                  {splittable && (
-                    <button type="button" disabled={busy} onClick={() => setConfirm("split")}>
-                      Take attendance each day
-                    </button>
-                  )}
-                  <button type="button" disabled={busy} onClick={duplicate}>
-                    Duplicate
-                  </button>
-                  <button type="button" disabled={busy} onClick={() => setEditing(true)}>
-                    {open ? "Edit" : "Edit notes"}
-                  </button>
-                  {event.status === "draft" && role === "secretary" && (
-                    <button type="button" disabled={busy} onClick={() => setConfirm("delete")}>
-                      Delete
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          {confirmInfo && (
-            <p role="status" className="muted">
-              {confirmInfo.ask}
+        <div className="event-facts">
+          {when.length > 0 && (
+            <p className="muted facts-line">
+              {when.map((t, i) => (
+                <span key={i}>{t}</span>
+              ))}
             </p>
           )}
+          {event.notes && <p className="text event-notes">{event.notes}</p>}
           {canEdit && span && open && attendanceStarted && !confirmInfo && (
-            <p className="muted">Attendance has started, so this event can't be split into days.</p>
+            <p className="muted">Attendance has started, so this event can&rsquo;t be split into days.</p>
           )}
-          {actionError && (
-            <p role="alert" className="error">
-              {actionError}
-            </p>
-          )}
+        </div>
+      )}
+
+      {inSeries && (
+        <section className="days-strip" aria-label={`Days of this event (day ${dayNumber} of ${series.length})`}>
+          <ul>
+            {series.map((d, i) => (
+              <li key={d.id}>
+                <a href={`#events?id=${d.id}`} aria-current={String(d.id) === String(event.id) ? "page" : undefined}>
+                  Day {i + 1} · {formatDayShort(d.starts_at)}
+                </a>
+                {d.status !== "scheduled" && <StatusChip status={d.status} />}
+                {d.finalized && <span className="chip ok">Finalised</span>}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
-      <Attendees event={event} canEdit={canEdit && open} inSeries={inSeries} onChanged={load} />
-
       {(event.status === "scheduled" || event.status === "completed") && <Register event={event} role={role} onChanged={load} />}
+      <Attendees event={event} canEdit={canEdit && open} inSeries={inSeries} defaultOpen={event.status === "draft" || (event.attendees ?? []).length === 0} onChanged={load} />
       {event.status === "draft" && <p className="muted">Schedule the event to take attendance.</p>}
     </>
   );

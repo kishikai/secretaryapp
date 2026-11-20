@@ -4,7 +4,7 @@ import { errorText, plural } from "../format.js";
 
 const MAX_SHOWN = 50;
 
-function AddGroup({ event, onAdded }) {
+function AddGroup({ event, onAdded, children }) {
   const id = useId();
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState("");
@@ -25,9 +25,11 @@ function AddGroup({ event, onAdded }) {
   return (
     <div className="inline-add">
       <div className="field">
-        <label htmlFor={`${id}-group`}>Add a group</label>
+        <label htmlFor={`${id}-group`} className="sr-only">
+          Add a group
+        </label>
         <select id={`${id}-group`} value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-          <option value="">Choose a group…</option>
+          <option value="">Add a group…</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
               {g.name} ({g.member_count})
@@ -38,6 +40,7 @@ function AddGroup({ event, onAdded }) {
       <button type="button" disabled={!groupId || busy} onClick={add}>
         {busy ? "Adding…" : "Add group"}
       </button>
+      {children}
     </div>
   );
 }
@@ -120,7 +123,8 @@ function AddPeople({ event, onAdded, onClose }) {
   );
 }
 
-export default function Attendees({ event, canEdit, inSeries, onChanged }) {
+export default function Attendees({ event, canEdit, inSeries, defaultOpen = false, onChanged }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const [picking, setPicking] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -162,19 +166,21 @@ export default function Attendees({ event, canEdit, inSeries, onChanged }) {
   };
 
   return (
-    <section className="card" aria-labelledby="attendees-h">
-      <h2 id="attendees-h">Expected attendees ({list.length})</h2>
+    <details className="card attendees-panel" open={isOpen} onToggle={(e) => setIsOpen(e.currentTarget.open)}>
+      <summary>
+        <span>Who&rsquo;s expected ({list.length})</span>
+        {canEdit && <span className="muted att-hint">Manage list</span>}
+      </summary>
       {canEdit && inSeries && <p className="muted">Each day has its own list. Changes here only affect this day.</p>}
       {canEdit && (
         <>
-          <AddGroup event={event} onAdded={added} />
-          {!picking && (
-            <div className="row-actions" style={{ marginTop: 0, marginBottom: "0.75rem" }}>
+          <AddGroup event={event} onAdded={added}>
+            {!picking && (
               <button type="button" onClick={() => setPicking(true)}>
                 Add people
               </button>
-            </div>
-          )}
+            )}
+          </AddGroup>
           {picking && <AddPeople event={event} onAdded={added} onClose={() => setPicking(false)} />}
         </>
       )}
@@ -189,23 +195,13 @@ export default function Attendees({ event, canEdit, inSeries, onChanged }) {
         </p>
       )}
       {list.length === 0 && <p className="empty">No one is on the expected list yet.</p>}
-      <ul className="attendees">
+      <ul className="att-list">
         {list.map((a) => (
-          <li key={a.member_id} className="attendee">
-            <div className="who">
+          <li key={a.member_id} className="att-row">
+            <div className="att-who">
               <strong>{a.full_name}</strong>
-              {!a.active && (
-                <>
-                  {" "}
-                  <span className="chip">Inactive</span>
-                </>
-              )}
-              {(a.email || a.phone) && (
-                <div className="meta">
-                  {a.email && <span>{a.email}</span>}
-                  {a.phone && <span>{a.phone}</span>}
-                </div>
-              )}
+              {!a.active && <span className="chip">Inactive</span>}
+              {(a.email || a.phone) && <span className="muted att-contact">{[a.email, a.phone].filter(Boolean).join(" · ")}</span>}
             </div>
             {canEdit && (
               <button type="button" className="small" disabled={removing === a.member_id} onClick={() => remove(a)}>
@@ -215,6 +211,6 @@ export default function Attendees({ event, canEdit, inSeries, onChanged }) {
           </li>
         ))}
       </ul>
-    </section>
+    </details>
   );
 }

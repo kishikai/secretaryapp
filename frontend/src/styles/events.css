@@ -1,1 +1,517 @@
 /* Events, event detail, register and attendees. Builds on the shared patterns at the end of ../styles.css. */
+
+/* ===== Event list ===== */
+.scope-tabs {
+  margin-bottom: 0.75rem;
+}
+.event-rows .row-main {
+  position: relative;
+  padding-block: 0.15rem;
+}
+/* The whole text block is one big tap target for the title link. */
+.event-rows .row-title a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.event-rows .row-side {
+  position: relative;
+}
+.event-rows .expected {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.clear-filters {
+  align-self: start;
+}
+.facts-line span + span::before {
+  content: "· ";
+}
+.facts-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.4rem;
+}
+.event-form input,
+.event-form select,
+.event-form textarea {
+  font-size: 1rem; /* 16px: stops iOS Safari zooming in on focus */
+}
+
+/* ===== Event detail ===== */
+.back-link {
+  margin: 0 0 0.25rem;
+}
+.page-head .actions {
+  align-items: center;
+}
+.menu {
+  position: relative;
+}
+.menu > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-weight: 400;
+  list-style: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+.menu > summary::-webkit-details-marker {
+  display: none;
+}
+.menu > summary::after {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-0.1rem) rotate(45deg);
+}
+.menu > summary:hover,
+.menu[open] > summary {
+  background: var(--surface-2);
+}
+.menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.25rem);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 13rem;
+  max-width: calc(100vw - 2rem);
+  padding: 0.35rem;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+}
+.menu-panel button {
+  width: 100%;
+  text-align: left;
+  border-color: transparent;
+}
+.menu-panel button.danger {
+  border-color: var(--danger);
+}
+.confirm-box {
+  margin-bottom: 0.75rem;
+}
+.confirm-box p {
+  margin: 0 0 0.5rem;
+}
+.confirm-box .confirm,
+.reg-savebar .confirm {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.event-facts {
+  margin-bottom: 0.75rem;
+}
+.event-facts p {
+  margin: 0 0 0.25rem;
+}
+.event-facts .event-notes {
+  margin-top: 0.25rem;
+}
+.days-strip {
+  margin-bottom: 0.75rem;
+}
+.days-strip ul {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.days-strip ul::-webkit-scrollbar {
+  display: none;
+}
+.days-strip li {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+.days-strip a {
+  display: inline-flex;
+  align-items: center;
+}
+.days-strip a[aria-current="page"] {
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* ===== Expected attendees ===== */
+.attendees-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  list-style: none;
+}
+.attendees-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.attendees-panel > summary::before {
+  content: "";
+  flex: none;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.attendees-panel[open] > summary::before {
+  transform: rotate(45deg);
+}
+.attendees-panel > summary .att-hint {
+  margin-left: auto;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+.attendees-panel[open] > summary {
+  margin-bottom: 0.75rem;
+}
+.attendees-panel .inline-add {
+  align-items: center;
+}
+.attendees-panel .inline-add .field {
+  flex: 1 1 12rem;
+  max-width: 22rem;
+}
+.att-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.att-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+}
+.att-row:first-child {
+  border-top: 0;
+}
+.att-who {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.1rem 0.6rem;
+}
+.att-contact {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.att-row > button {
+  flex: none;
+}
+
+/* ===== Register ===== */
+.reg-tools {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.reg-tools input {
+  flex: 1 1 8rem;
+  width: auto;
+  font-size: 1rem;
+}
+.reg-tools button {
+  flex: none;
+}
+.register-counts {
+  gap: 0.5rem;
+}
+.register-counts .chip-toggle {
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.reg-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+.reg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+.reg-row:first-child {
+  border-top: 0;
+}
+.reg-who {
+  flex: 1 1 10rem;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.1rem 0.5rem;
+}
+.reg-unsaved {
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+.reg-controls {
+  display: grid;
+  grid-template-columns: repeat(3, 5.75rem) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+.reg-btn {
+  min-height: 36px;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.reg-btn[aria-pressed="true"] {
+  border-color: currentColor;
+}
+.reg-btn[aria-pressed="true"]::before {
+  content: "✓";
+  margin-right: 0.25em;
+}
+.reg-btn.st-present[aria-pressed="true"] {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.reg-btn.st-late[aria-pressed="true"] {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.reg-btn.st-absent[aria-pressed="true"] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.reg-excused {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 36px;
+  padding-inline: 0.25rem;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.reg-excused.is-off {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.reg-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.reg-foot .register-history {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+.reg-foot > .button {
+  margin-left: auto;
+}
+.reg-foot .reg-hint {
+  flex-basis: 100%;
+}
+.reg-savebar {
+  margin-top: 0.75rem;
+  bottom: var(--bottom-nav-h, 0px);
+}
+.reg-top {
+  flex: 1 1 14rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  min-width: 0;
+}
+.reg-status,
+.reg-why {
+  margin: 0;
+}
+.reg-status {
+  flex: 1 1 auto;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.reg-why {
+  font-size: 0.85rem;
+}
+.reg-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+.reg-note {
+  flex: 1 1 100%;
+  font-size: 1rem;
+}
+.reg-msg {
+  flex: 1 1 100%;
+  margin: 0;
+}
+.reg-note-toggle {
+  flex: none;
+  touch-action: manipulation;
+}
+
+/* ===== Phones ===== */
+@media (max-width: 640px) {
+  .scope-tabs {
+    display: flex;
+  }
+  .scope-tabs button {
+    flex: 1 1 0;
+  }
+  .detail-head .actions {
+    flex: 1 1 100%;
+  }
+  .detail-head .actions > button,
+  .detail-head .actions > .menu {
+    flex: 1 1 auto;
+  }
+  .detail-head .actions > .menu > summary {
+    justify-content: center;
+  }
+  .event-form .row-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .event-form .row-actions > * {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  /* The register card runs edge to edge so three buttons and Excused fit on one line. */
+  .register-card {
+    margin-inline: -1rem;
+    padding-inline: 0.6rem;
+    border-inline: 0;
+    border-radius: 0;
+  }
+  .register-card .reg-savebar {
+    margin-inline: -0.6rem;
+    border-radius: 0;
+  }
+  .register-card .banner {
+    margin-top: 0;
+  }
+  .register-counts {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-inline: -0.6rem;
+    padding: 4px 0.6rem;
+  }
+  .register-counts::-webkit-scrollbar {
+    display: none;
+  }
+  .register-counts li {
+    flex: none;
+  }
+  .reg-row.is-edit .reg-who {
+    flex-basis: 100%;
+  }
+  .reg-controls {
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  }
+  .reg-btn {
+    font-size: 0.85rem;
+    padding-inline: 0.1rem;
+  }
+  .reg-excused {
+    font-size: 0.85rem;
+    gap: 0.25rem;
+  }
+  .reg-top,
+  .reg-buttons {
+    flex-basis: 100%;
+  }
+  .reg-buttons > button {
+    flex: 1 1 0;
+  }
+  .reg-savebar .confirm {
+    width: 100%;
+  }
+  .reg-savebar .confirm > button {
+    flex: 1 1 0;
+  }
+}
+
+/* ===== Touch screens: 44px targets, 8px apart ===== */
+@media (pointer: coarse) {
+  .reg-btn,
+  .reg-excused {
+    min-height: 44px;
+  }
+  .reg-excused {
+    padding-inline: 0.4rem;
+  }
+  .menu > summary,
+  .back-link a,
+  .days-strip a,
+  .attendees-panel > summary,
+  .register-history > summary {
+    min-height: 44px;
+  }
+  .back-link a,
+  .days-strip a,
+  .register-history > summary {
+    display: inline-flex;
+    align-items: center;
+  }
+  .attendees-panel > summary {
+    margin-block: -0.5rem;
+  }
+  .attendees-panel[open] > summary {
+    margin-bottom: 0.25rem;
+  }
+  .menu-panel {
+    gap: 0.5rem;
+  }
+  .reg-note-toggle {
+    padding-inline: 0.5rem;
+  }
+  .event-rows .row {
+    padding-block: 0.5rem;
+  }
+  .att-row {
+    padding-block: 0.25rem;
+  }
+}
