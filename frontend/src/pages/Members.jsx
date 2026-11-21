@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { api, isAbort, query } from "../api.js";
+import { api, isAbort, query, swr } from "../api.js";
 import { errorText, plural } from "../format.js";
+import Sheet from "../Sheet.jsx";
+import { toast } from "../toast.jsx";
+import { SkeletonRows, useIsPhone } from "../ui.jsx";
+import { useIdempotency } from "./idempotency.js";
 import MemberHistory from "./MemberHistory.jsx";
 import MemberImport from "./MemberImport.jsx";
 
 const EMPTY = { full_name: "", email: "", phone: "", member_code: "", notes: "", joined_on: "", left_on: "" };
 
-function MemberForm({ member, groups, canDeactivate, onSaved, onCancel }) {
+function MemberForm({ member, groups, canDeactivate, onSaved, onToggled, onCancel }) {
   const id = useId();
   const headRef = useRef(null);
   const createdRef = useRef(null);
+  const idem = useIdempotency();
   const [f, setF] = useState(() => {
     if (!member) return EMPTY;
     return Object.fromEntries(Object.keys(EMPTY).map((k) => [k, member[k] ?? ""]));
@@ -43,7 +48,10 @@ function MemberForm({ member, groups, canDeactivate, onSaved, onCancel }) {
     try {
       // After a first save whose group step failed, a retry updates that member instead of adding another.
       const target = member ?? createdRef.current;
-      if (!target) createdRef.current = await api("/members", { method: "POST", body });
+      if (!target) {
+        createdRef.current = await api("/members", { method: "POST", body, idempotencyKey: idem.keyFor(body) });
+        idem.done();
+      }
       else await api(`/members/${target.id}`, { method: "PATCH", body });
       await api(`/members/${(member ?? createdRef.current).id}/groups`, { method: "PUT", body: { group_ids: groupIds } });
       onSaved();
@@ -59,7 +67,7 @@ function MemberForm({ member, groups, canDeactivate, onSaved, onCancel }) {
     setBusy(true);
     try {
       await api(`/members/${member.id}`, { method: "PATCH", body: { active: !member.active } });
-      onSaved();
+      onToggled(member, !member.active);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -184,9 +192,13 @@ function MemberList({ role, groupParam }) {
   const [groups, setGroups] = useState([]);
   const [members, setMembers] = useState(null);
   const [error, setError] = useState("");
+  const [groupsError, setGroupsError] = useState("");
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState(0);
-  const [filtersOpen, setFiltersOpen] = useState(Boolean(groupParam));
+  const [filtersOpen, setFiltersOpen] = useState(Boolean(groupParam)); // the inline panel (desktop)
+  const [sheetOpen, setSheetOpen] = useState(false); // the Filters sheet (phones)
+  const phone = useIsPhone();
+  const groupsCtl = useRef(null);
   const headRef = useRef(null);
   const addRef = useRef(null);
   const returnTo = useRef(null); // member id (or "new") whose control gets focus when the form closes
@@ -219,21 +231,29 @@ function MemberList({ role, groupParam }) {
   }, [q]);
 
   const loadGroups = useCallback(() => {
-    api("/groups")
-      .then(setGroups)
-      .catch(() => {});
+    groupsCtl.current?.abort();
+    const ctl = new AbortController();
+    groupsCtl.current = ctl;
+    swr("/groups", setGroups, { signal: ctl.signal })
+      .then(() => setGroupsError(""))
+      .catch((e) => !isAbort(e) && setGroupsError(errorText(e)));
   }, []);
-  useEffect(loadGroups, [loadGroups]);
+  useEffect(() => {
+    loadGroups();
+    return () => groupsCtl.current?.abort();
+  }, [loadGroups]);
 
   useEffect(() => {
     if (view !== "list") return undefined;
     const ctl = new AbortController();
-    api(`/members${query({ q: debouncedQ, group_id: group, active })}`, { signal: ctl.signal })
-      .then((m) => {
+    swr(
+      `/members${query({ q: debouncedQ, group_id: group, active })}`,
+      (m, { stale }) => {
         setMembers(m);
-        setError("");
-      })
-      .catch((e) => !isAbort(e) && setError(errorText(e)));
+        if (!stale) setError("");
+      },
+      { signal: ctl.signal },
+    ).catch((e) => !isAbort(e) && setError(errorText(e))); // a failed refresh keeps the cached list on screen
     return () => ctl.abort();
   }, [view, debouncedQ, group, active, version]);
 
@@ -265,12 +285,28 @@ function MemberList({ role, groupParam }) {
     setActive("");
   };
   const editingInList = Boolean(editing && editing !== "new" && members?.some((m) => m.id === editing.id));
+  // Deactivate/Reactivate went through: close the form, say so, and offer to put it back.
+  const toggled = (member, nowActive) => {
+    closeForm();
+    refresh();
+    toast({
+      text: `${nowActive ? "Reactivated" : "Deactivated"} ${member.full_name}.`,
+      action: {
+        label: "Undo",
+        run: async () => {
+          await api(`/members/${member.id}`, { method: "PATCH", body: { active: !nowActive } });
+          refresh();
+        },
+      },
+    });
+  };
   const form = (member) => (
     <MemberForm
       key={member ? member.id : "new"}
       member={member}
       groups={groups}
       canDeactivate={role === "secretary"}
+      onToggled={toggled}
       onCancel={closeForm}
       onSaved={() => {
         closeForm();
@@ -328,9 +364,10 @@ function MemberList({ role, groupParam }) {
         <button
           type="button"
           className="filters-toggle"
-          aria-expanded={filtersOpen}
-          aria-controls={`${id}-filters`}
-          onClick={() => setFiltersOpen((o) => !o)}
+          aria-expanded={phone ? sheetOpen : filtersOpen}
+          aria-controls={phone ? undefined : `${id}-filters`}
+          aria-haspopup={phone ? "dialog" : undefined}
+          onClick={() => (phone ? setSheetOpen(true) : setFiltersOpen((o) => !o))}
         >
           Filters
           {activeFilters > 0 && (
@@ -357,7 +394,7 @@ function MemberList({ role, groupParam }) {
           </button>
         )}
       </div>
-      {filtersOpen && (
+      {!phone && filtersOpen && (
         <div className="card filters filters-panel" id={`${id}-filters`}>
           <div className="field">
             <label htmlFor={`${id}-group`}>Group</label>
@@ -380,12 +417,56 @@ function MemberList({ role, groupParam }) {
           </div>
         </div>
       )}
+      <Sheet
+        open={phone && sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title="Filters"
+        footer={
+          <>
+            <button type="button" className="primary" onClick={() => setSheetOpen(false)}>
+              {members ? `Show ${plural(members.length, "member", "members")}` : "Show members"}
+            </button>
+            {activeFilters > 0 && (
+              <button type="button" onClick={clearFilters}>
+                Clear filters
+              </button>
+            )}
+          </>
+        }
+      >
+        <div className="sheet-filters">
+          <div className="field">
+            <label htmlFor={`${id}-sgroup`}>Group</label>
+            <select id={`${id}-sgroup`} value={group} onChange={(e) => setGroup(e.target.value)}>
+              <option value="">All groups</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor={`${id}-sactive`}>Show</label>
+            <select id={`${id}-sactive`} value={active} onChange={(e) => setActive(e.target.value)}>
+              <option value="">All members</option>
+              <option value="true">Active only</option>
+              <option value="false">Inactive only</option>
+            </select>
+          </div>
+        </div>
+      </Sheet>
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
-      {!members && !error && <p className="muted">Loading…</p>}
+      {groupsError && (
+        <p role="alert" className="error">
+          Couldn't load the groups list. {groupsError}
+        </p>
+      )}
+      {!members && !error && <SkeletonRows rows={6} label="Loading members" />}
       {members && members.length === 0 && <p className="empty">No members match. Change the search or filters, or add a member.</p>}
       {members && members.length > 0 && (
         <ul className="rows">

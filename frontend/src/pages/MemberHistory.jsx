@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api.js";
+import { isAbort, swr } from "../api.js";
 import { errorText, formatEventWhen, formatRate } from "../format.js";
+import { SkeletonBlock, SkeletonRows } from "../ui.jsx";
 import { StatusChip } from "./eventUi.jsx";
 
 const STATUS = {
@@ -17,13 +18,16 @@ export default function MemberHistory({ id }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let cancelled = false;
-    api(`/members/${encodeURIComponent(id)}/attendance`)
-      .then((d) => !cancelled && setData(d))
-      .catch((e) => !cancelled && setError(errorText(e)));
-    return () => {
-      cancelled = true;
-    };
+    const ctl = new AbortController();
+    swr(
+      `/members/${encodeURIComponent(id)}/attendance`,
+      (d, { stale }) => {
+        setData(d);
+        if (!stale) setError("");
+      },
+      { signal: ctl.signal },
+    ).catch((e) => !isAbort(e) && setError(errorText(e))); // a failed refresh keeps the cached history on screen
+    return () => ctl.abort();
   }, [id]);
 
   useEffect(() => {
@@ -45,7 +49,10 @@ export default function MemberHistory({ id }) {
             {error}
           </p>
         ) : (
-          <p className="muted">Loading…</p>
+          <>
+            <SkeletonBlock lines={2} label="Loading attendance history" />
+            <SkeletonRows rows={4} label="Loading events" />
+          </>
         )}
       </>
     );
@@ -55,6 +62,11 @@ export default function MemberHistory({ id }) {
   return (
     <>
       {back}
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
       <div className="page-head">
         <div className="head-title">
           <h1 tabIndex={-1} ref={headRef}>

@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { api, isAbort, query } from "../api.js";
+import { isAbort, query, swr } from "../api.js";
+import { SkeletonRows } from "../ui.jsx";
 import { errorText, formatRate, daysAgoLocal, plural, todayLocal } from "../format.js";
 
 // Column definitions: key in the API row, label, short label for phones, and the first-click direction.
@@ -36,6 +37,7 @@ export default function Absences() {
   const [active, setActive] = useState("");
   const [groups, setGroups] = useState([]);
   const [rows, setRows] = useState(null);
+  const [groupsError, setGroupsError] = useState("");
   const [error, setError] = useState("");
   const [sort, setSort] = useState(null); // null = the order the API returned
 
@@ -49,19 +51,23 @@ export default function Absences() {
   const sorted = useMemo(() => sortRows(rows ?? [], sort), [rows, sort]);
 
   useEffect(() => {
-    api("/groups")
-      .then(setGroups)
-      .catch(() => {});
+    const ctl = new AbortController();
+    swr("/groups", setGroups, { signal: ctl.signal })
+      .then(() => setGroupsError(""))
+      .catch((e) => !isAbort(e) && setGroupsError(errorText(e)));
+    return () => ctl.abort();
   }, []);
 
   useEffect(() => {
     const ctl = new AbortController();
-    api(`/absences${query({ date_from: dateFrom, date_to: dateTo, group_id: group, active })}`, { signal: ctl.signal })
-      .then((list) => {
+    swr(
+      `/absences${query({ date_from: dateFrom, date_to: dateTo, group_id: group, active })}`,
+      (list, { stale }) => {
         setRows(list);
-        setError("");
-      })
-      .catch((e) => !isAbort(e) && setError(errorText(e)));
+        if (!stale) setError("");
+      },
+      { signal: ctl.signal },
+    ).catch((e) => !isAbort(e) && setError(errorText(e)));
     return () => ctl.abort();
   }, [dateFrom, dateTo, group, active]);
 
@@ -111,7 +117,12 @@ export default function Absences() {
           {error}
         </p>
       )}
-      {!rows && !error && <p className="muted">Loading…</p>}
+      {groupsError && (
+        <p role="alert" className="error">
+          Couldn't load the groups list. {groupsError}
+        </p>
+      )}
+      {!rows && !error && <SkeletonRows rows={6} label="Loading absences" />}
       {rows && (
         <p className="muted" role="status">
           {plural(rows.length, "member", "members")}

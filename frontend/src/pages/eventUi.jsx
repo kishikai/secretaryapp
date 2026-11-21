@@ -1,5 +1,4 @@
-import { useMemo, useRef } from "react";
-import { newIdempotencyKey } from "../api.js";
+import { useIdempotency } from "./idempotency.js";
 import { STATUS_LABELS } from "../format.js";
 
 export function StatusChip({ status }) {
@@ -24,22 +23,8 @@ export const attendanceLabel = (s) => (s === "excused" ? "Excused" : (ATTENDANCE
 
 // One idempotency key per create action. key.get(inputs) hands out the same key for the same inputs, so a
 // second tap after "Could not reach the server" can't make a second copy; key.renew() after the action succeeded.
+// One Idempotency-Key per action (see ./idempotency.js); get(sig) reuses it while sig is unchanged.
 export function useIdempotencyKey() {
-  const state = useRef({ key: null, sig: null });
-  return useMemo(
-    () => ({
-      get(sig = "") {
-        const s = state.current;
-        if (!s.key || s.sig !== sig) {
-          s.key = newIdempotencyKey();
-          s.sig = sig;
-        }
-        return s.key;
-      },
-      renew() {
-        state.current = { key: null, sig: null };
-      },
-    }),
-    [],
-  );
+  const idem = useIdempotency();
+  return { get: (sig = "") => idem.keyFor(sig), renew: () => idem.done() };
 }

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { api, isAbort, query } from "../api.js";
+import { api, isAbort, query, swr } from "../api.js";
 import { errorText, plural } from "../format.js";
+import { toast } from "../toast.jsx";
+import { SkeletonRows } from "../ui.jsx";
+import { useIdempotency } from "./idempotency.js";
 
 function GroupForm({ group, onSaved, onCancel, autoFocus }) {
   const id = useId();
@@ -8,6 +11,7 @@ function GroupForm({ group, onSaved, onCancel, autoFocus }) {
   const [description, setDescription] = useState(group?.description ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const idem = useIdempotency();
 
   const submit = async (e) => {
     e.preventDefault();
@@ -17,7 +21,10 @@ function GroupForm({ group, onSaved, onCancel, autoFocus }) {
     try {
       const body = { name: name.trim(), description: description.trim() || null };
       if (group) await api(`/groups/${group.id}`, { method: "PATCH", body });
-      else await api("/groups", { method: "POST", body });
+      else {
+        await api("/groups", { method: "POST", body, idempotencyKey: idem.keyFor(body) });
+        idem.done();
+      }
       if (!group) {
         setName("");
         setDescription("");
@@ -76,21 +83,29 @@ function MembersPanel({ group, canEdit, onChanged, onClose }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [searchError, setSearchError] = useState("");
+  const headRef = useRef(null);
+  const loadCtl = useRef(null);
+  const idem = useIdempotency();
   const already = new Set((members ?? []).map((m) => m.id));
 
-  const loadMembers = useCallback(
-    () =>
-      api(`/members${query({ group_id: group.id })}`)
-        .then((m) => {
-          setMembers(m);
-          setError("");
-        })
-        .catch((e) => setError(errorText(e))),
-    [group.id],
-  );
+  // The newest load wins: starting one drops the answer of an older one.
+  const loadMembers = useCallback(() => {
+    loadCtl.current?.abort();
+    const ctl = new AbortController();
+    loadCtl.current = ctl;
+    return swr(
+      `/members${query({ group_id: group.id })}`,
+      (m, { stale }) => {
+        setMembers(m);
+        if (!stale) setError("");
+      },
+      { signal: ctl.signal },
+    ).catch((e) => !isAbort(e) && setError(errorText(e)));
+  }, [group.id]);
 
   useEffect(() => {
     loadMembers();
+    return () => loadCtl.current?.abort();
   }, [loadMembers]);
 
   useEffect(() => {
@@ -102,14 +117,14 @@ function MembersPanel({ group, canEdit, onChanged, onClose }) {
   useEffect(() => {
     if (!canEdit) return undefined;
     const ctl = new AbortController();
-    api(`/members${query({ q: debouncedQ, active: "true" })}`, {
-      signal: ctl.signal,
-    })
-      .then((m) => {
+    swr(
+      `/members${query({ q: debouncedQ, active: "true" })}`,
+      (m, { stale }) => {
         setResults(m);
-        setSearchError("");
-      })
-      .catch((e) => !isAbort(e) && setSearchError(errorText(e)));
+        if (!stale) setSearchError("");
+      },
+      { signal: ctl.signal },
+    ).catch((e) => !isAbort(e) && setSearchError(errorText(e)));
     return () => ctl.abort();
   }, [debouncedQ, canEdit]);
 
@@ -121,10 +136,9 @@ function MembersPanel({ group, canEdit, onChanged, onClose }) {
     setError("");
     setNotice("");
     try {
-      const r = await api(`/groups/${group.id}/members`, {
-        method: "POST",
-        body: { member_ids: selected },
-      });
+      const body = { member_ids: selected };
+      const r = await api(`/groups/${group.id}/members`, { method: "POST", body, idempotencyKey: idem.keyFor(body) });
+      idem.done();
       setNotice(`Added ${r?.added ?? selected.length}.`);
       setSelected([]);
       await loadMembers();
@@ -142,8 +156,20 @@ function MembersPanel({ group, canEdit, onChanged, onClose }) {
     setNotice("");
     try {
       await api(`/groups/${group.id}/members/${m.id}`, { method: "DELETE" });
+      toast({
+        text: `Removed ${m.full_name} from ${group.name}.`,
+        action: {
+          label: "Undo",
+          run: async () => {
+            await api(`/groups/${group.id}/members`, { method: "POST", body: { member_ids: [m.id] } });
+            await loadMembers();
+            onChanged();
+          },
+        },
+      });
       await loadMembers();
       onChanged();
+      headRef.current?.focus(); // the Remove button is gone; keep the place
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -153,9 +179,11 @@ function MembersPanel({ group, canEdit, onChanged, onClose }) {
 
   return (
     <div className="card members-panel" role="group" aria-label={`Members of ${group.name}`}>
-      <h3>Members of {group.name}</h3>
+      <h3 tabIndex={-1} ref={headRef}>
+        Members of {group.name}
+      </h3>
       {members && members.length === 0 && <p className="empty">No one is in this group yet.</p>}
-      {!members && !error && <p className="muted">Loading…</p>}
+      {!members && !error && <SkeletonRows rows={3} card={false} label="Loading members" />}
       <ul className="attendees">
         {(members ?? []).map((m) => (
           <li key={m.id} className="attendee">
@@ -205,7 +233,7 @@ function MembersPanel({ group, canEdit, onChanged, onClose }) {
               {searchError}
             </p>
           )}
-          {!results && !searchError && <p className="muted">Loading…</p>}
+          {!results && !searchError && <SkeletonRows rows={3} card={false} label="Loading people to add" />}
           {results && results.length === 0 && <p className="empty">No active members match.</p>}
           {shown.length > 0 && (
             <ul className="pick-list">
@@ -358,16 +386,26 @@ export default function Groups({ role }) {
   const canDelete = role === "secretary";
   const showForm = canEdit && (formOpen ?? (groups !== null && groups.length === 0));
 
+  const loadCtl = useRef(null);
+  // The newest load wins: starting one drops the answer of an older one.
   const load = useCallback(() => {
-    api("/groups")
-      .then((g) => {
+    loadCtl.current?.abort();
+    const ctl = new AbortController();
+    loadCtl.current = ctl;
+    swr(
+      "/groups",
+      (g, { stale }) => {
         setGroups(g);
-        setError("");
-      })
-      .catch((e) => setError(errorText(e)));
+        if (!stale) setError("");
+      },
+      { signal: ctl.signal },
+    ).catch((e) => !isAbort(e) && setError(errorText(e))); // a failed refresh keeps the cached list on screen
   }, []);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    load();
+    return () => loadCtl.current?.abort();
+  }, [load]);
 
   return (
     <>
@@ -413,7 +451,7 @@ export default function Groups({ role }) {
           {error}
         </p>
       )}
-      {!groups && !error && <p className="muted">Loading…</p>}
+      {!groups && !error && <SkeletonRows rows={4} label="Loading groups" />}
       {groups && groups.length === 0 && <p className="empty">No groups yet.</p>}
       {groups && groups.length > 0 && (
         <ul className="rows">

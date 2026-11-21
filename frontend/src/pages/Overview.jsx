@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../api.js";
+import { isAbort, swr } from "../api.js";
+import { SkeletonBlock, SkeletonRows } from "../ui.jsx";
 import { errorText, formatDay, formatEventWhen, formatRate, plural } from "../format.js";
 import CollectionStatus from "./CollectionStatus.jsx";
 import { MESSAGES_ENABLED } from "../features.js";
@@ -27,20 +28,18 @@ function readDismissed() {
 // Shown until the basics are set up. Hidden when everything is done, still loading, or dismissed.
 function GettingStarted({ data, role }) {
   const [dismissed, setDismissed] = useState(readDismissed);
-  const [events, setEvents] = useState(null); // { any, completed }
+  const [events, setEvents] = useState({ any: null, completed: null }); // null = not known yet
 
   useEffect(() => {
     if (dismissed) return undefined;
-    let cancelled = false;
-    Promise.all([api("/events"), api("/events?status=completed")])
-      .then(([all, done]) => !cancelled && setEvents({ any: all.length > 0, completed: done.length > 0 }))
-      .catch(() => {}); // no card if we can't tell
-    return () => {
-      cancelled = true;
-    };
+    const ctl = new AbortController();
+    const note = (k) => (list) => setEvents((cur) => ({ ...cur, [k]: list.length > 0 }));
+    swr("/events", note("any"), { signal: ctl.signal }).catch(() => {}); // no card if we can't tell
+    swr("/events?status=completed", note("completed"), { signal: ctl.signal }).catch(() => {});
+    return () => ctl.abort();
   }, [dismissed]);
 
-  if (dismissed || !events) return null;
+  if (dismissed || events.any === null || events.completed === null) return null;
 
   const steps = [
     {
@@ -95,13 +94,16 @@ export default function Overview({ role }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let cancelled = false;
-    api("/dashboard")
-      .then((d) => !cancelled && setData(d))
-      .catch((e) => !cancelled && setError(errorText(e)));
-    return () => {
-      cancelled = true;
-    };
+    const ctl = new AbortController();
+    swr(
+      "/dashboard",
+      (d, { stale }) => {
+        setData(d);
+        if (!stale) setError("");
+      },
+      { signal: ctl.signal },
+    ).catch((e) => !isAbort(e) && setError(errorText(e))); // a failed refresh keeps the cached figures on screen
+    return () => ctl.abort();
   }, []);
 
   const abs = data?.absences;
@@ -116,7 +118,23 @@ export default function Overview({ role }) {
           {error}
         </p>
       )}
-      {!data && !error && <p className="muted">Loading…</p>}
+      {!data && !error && (
+        <>
+          <div className="ov-skel">
+            <SkeletonBlock lines={2} label="Loading the overview" />
+          </div>
+          <div className="ov-grid">
+            <section className="card" aria-labelledby="ov-finish">
+              <h2 id="ov-finish">Needs doing</h2>
+              <SkeletonRows rows={2} card={false} label="Loading what needs doing" />
+            </section>
+            <section className="card" aria-labelledby="ov-upcoming">
+              <h2 id="ov-upcoming">Next up</h2>
+              <SkeletonRows rows={3} card={false} label="Loading upcoming events" />
+            </section>
+          </div>
+        </>
+      )}
       {data && (
         <>
           {role !== "viewer" && <GettingStarted data={data} role={role} />}

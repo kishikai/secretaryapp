@@ -452,3 +452,28 @@ button.sort-btn:hover:not(:disabled) {
   gap: 0.5rem;
   padding: 0.25rem 0;
 }
+
+/* ---- Loading placeholders and the phone filter sheet ---- */
+.ov-skel {
+  margin-bottom: 1rem;
+  padding: 0.5rem 1rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.ov-grid .skeleton .sk-row:first-child {
+  padding-top: 0.25rem;
+}
+.members-panel .skeleton {
+  margin-bottom: 0.5rem;
+}
+.sheet-filters {
+  display: grid;
+  gap: 0.25rem;
+}
+.sheet-filters select {
+  width: 100%;
+}
+.sheet-foot > button.primary {
+  flex: 1 1 10rem;
+}

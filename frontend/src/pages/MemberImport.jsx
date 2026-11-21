@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api.js";
 import { errorText, plural } from "../format.js";
+import { useIdempotency } from "./idempotency.js";
 
 // Per-row choice is stored as "create", "skip" or "update:<member id>".
 function defaultChoice(row) {
@@ -30,6 +31,7 @@ export default function MemberImport({ onCancel, onDone }) {
   const [choices, setChoices] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const idem = useIdempotency();
 
   useEffect(() => {
     headRef.current?.focus();
@@ -57,10 +59,9 @@ export default function MemberImport({ onCancel, onDone }) {
     setBusy(true);
     setError("");
     try {
-      const result = await api("/members/import/confirm", {
-        method: "POST",
-        body: { rows: rows.map((row) => toPayload(row, choices[row.row])) },
-      });
+      const body = { rows: rows.map((row) => toPayload(row, choices[row.row])) };
+      const result = await api("/members/import/confirm", { method: "POST", body, idempotencyKey: idem.keyFor(body) });
+      idem.done();
       onDone(result);
     } catch (err) {
       setError(errorText(err));
