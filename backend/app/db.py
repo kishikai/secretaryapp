@@ -100,6 +100,22 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 """
 
+IDEMPOTENCY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    scope TEXT NOT NULL,              -- 'admin:<id>' or 'token:<id>'
+    key TEXT NOT NULL,                -- the Idempotency-Key header value
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,               -- including the query string
+    body_hash TEXT NOT NULL,          -- SHA-256 of the raw request body
+    status INTEGER,                   -- NULL while the request is in progress
+    content_type TEXT,
+    body BLOB,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (scope, key)
+);
+CREATE INDEX IF NOT EXISTS idx_idempotency_created ON idempotency_keys (created_at);
+"""
+
 MEMBERS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS members (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -324,6 +340,8 @@ def init_db(db_path: str) -> None:
         if "evidence_id" not in {row["name"] for row in conn.execute("PRAGMA table_info(attendance_audit)")}:
             conn.execute("ALTER TABLE attendance_audit ADD COLUMN evidence_id INTEGER REFERENCES messages(id)")
         conn.executescript(EVIDENCE_SCHEMA)
+        # Idempotency-Key replay storage.
+        conn.executescript(IDEMPOTENCY_SCHEMA)
         for table, rebuild in STATUS_REBUILDS.items():
             sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = ?", (table,)).fetchone()[0]
             if "absent_excused" not in sql:

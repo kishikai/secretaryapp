@@ -163,11 +163,15 @@ def _bearer_token(request: Request) -> Optional[str]:
     return value.strip() or None
 
 
-def _valid_ingest_token(conn: sqlite3.Connection, token: str) -> bool:
-    row = conn.execute(
+def _ingest_token_row(conn: sqlite3.Connection, token: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
         "SELECT id FROM api_tokens WHERE token_hash = ? AND scope = 'ingest' AND revoked_at IS NULL",
         (token_digest(token),),
     ).fetchone()
+
+
+def _valid_ingest_token(conn: sqlite3.Connection, token: str) -> bool:
+    row = _ingest_token_row(conn, token)
     if row is None:
         return False
     conn.execute("UPDATE api_tokens SET last_used_at = ? WHERE id = ?", (now_stamp(), row["id"]))
@@ -222,6 +226,25 @@ def require_ingest(request: Request) -> None:
                 return  # Bearer requests carry no ambient credentials, so no CSRF check.
         raise HTTPException(401, SIGN_IN_REQUIRED)
     require_admin(request)
+
+
+def caller_scope(conn: sqlite3.Connection, request: Request) -> Optional[str]:
+    """Who is calling, as a stable string, for Idempotency-Key scoping; None when not authenticated.
+
+    Resolves the caller like require_ingest does (a Bearer header decides on its own, else the
+    session cookie) and applies the same CSRF rule to cookie callers, so a request that would be
+    refused with 401 or 403 never gets a scope. It does not touch last_used_at.
+    """
+    token = _bearer_token(request)
+    if token is not None:
+        row = _ingest_token_row(conn, token)
+        return f"token:{row['id']}" if row is not None else None
+    user = _session_admin(conn, request)
+    if user is None:
+        return None
+    if request.method not in SAFE_METHODS and request.headers.get(CSRF_HEADER) != CSRF_VALUE:
+        return None
+    return f"admin:{user['id']}"
 
 
 # ------------------------------------------------------------------ rate limit

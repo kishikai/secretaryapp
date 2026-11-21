@@ -107,6 +107,15 @@ Only a SHA-256 digest of the token is stored. A revoked token is rejected with 4
 
 **Serving the dashboard.** If `frontend/dist` exists (run `npm run build`), the backend serves it at `/`; set `SECRETARY_FRONTEND_DIST` to use another directory. API routes always take precedence. Without the directory only the API is served.
 
+**Idempotency-Key (safe retries).** A `POST` (outside `/auth/`) may carry an `Idempotency-Key` header, 1 to 128 characters of `A-Z a-z 0-9 _ -` (a UUID works). If the connection drops and the same request is sent again with the same key, the backend returns the first response (same status, body and content type, plus `Idempotent-Replayed: true`) instead of creating a duplicate. Requests without the header, and `PUT`, `PATCH` and `DELETE`, behave as before.
+
+- Keys are scoped to the caller: the signed-in admin for session callers, the API token for ingest-token callers. Two callers can use the same key without seeing each other's responses. Unauthenticated requests are never stored, and a replay needs the same sign-in and `X-Requested-With` header as the original.
+- A key belongs to one method, path (with query string) and body. Reusing it for something different returns 422 `This Idempotency-Key was already used for a different request`. Resend the identical bytes when retrying; for a multipart upload that means the same body and boundary.
+- While the first request is still running, a repeat returns 409 `A request with this Idempotency-Key is still in progress`. An invalid key returns 400 `Invalid Idempotency-Key`.
+- Only 2xx and 4xx responses up to 1 MB are stored (not 5xx, 401, 403 or 429); after a failure the same key can be retried and runs again. Bodies larger than the upload limit skip the feature.
+- Stored responses are kept for 24 hours (table `idempotency_keys`, purged as new keys arrive).
+- The dashboard sends the header automatically on create requests.
+
 **Using the API with curl.** Sign in once into a cookie jar, then send the cookie, and the `X-Requested-With` header on every request that changes data:
 
 ```bash
@@ -373,6 +382,7 @@ All changes are applied automatically on start-up; existing databases are migrat
 
 - v0.11 (Phase 3): `event_attendees` gains `status`, `recorded_at` and `recorded_by`; `events` gains `finalized_at` and `finalized_by`; new table `attendance_audit` (index `idx_attendance_audit_event`). Existing expected attendees start as `not_recorded`.
 - v0.12 (Phase 5): new table `evidence_reviews` (one decision per message); `attendance_audit` gains `evidence_id`.
+- Idempotency-Key: new table `idempotency_keys` (primary key `scope, key`; index `idx_idempotency_created`). Created on start-up if missing.
 
 ## Frontend
 

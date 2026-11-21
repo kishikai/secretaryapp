@@ -15,6 +15,7 @@ from app.attendance_api import router as attendance_router
 from app.collector_api import router as collector_router
 from app.db import connect, init_db
 from app.evidence_api import router as evidence_router
+from app.idempotency import IdempotencyMiddleware
 from app.exports_api import router as exports_router
 from app.reports_api import router as reports_router
 from app.events_api import router as events_router
@@ -26,6 +27,7 @@ from app.rules_api import router as rules_router
 
 DEFAULT_DB_PATH = os.environ.get("SECRETARY_DB_PATH", "data/secretary.db")
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MULTIPART_OVERHEAD_BYTES = 64 * 1024
 MAX_SEARCH_TOKENS = 20
 STATS_DAYS = 14
 DEFAULT_FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -71,6 +73,10 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
     app.state.db_path = db_path
     app.state.ocr_engine = ocr_engine
     app.state.login_limiter = LoginRateLimiter()
+
+    # Added first, so it sits inside the security-headers middleware below and replayed
+    # responses get the headers too. Bodies above the upload limit (plus multipart framing) skip it.
+    app.add_middleware(IdempotencyMiddleware, max_body_bytes=MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES)
 
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next):

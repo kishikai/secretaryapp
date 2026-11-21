@@ -70,8 +70,12 @@ export function newIdempotencyKey() {
 
 const RETRY_DELAYS = [400, 1200]; // ms; two retries after the first try
 const RETRY_STATUSES = new Set([0, 502, 503, 504]);
-// Retrying a POST is only safe when the server replays repeated Idempotency-Keys instead of acting twice.
-const RETRY_POSTS = false;
+// Retrying a POST is safe because the server replays a repeated Idempotency-Key instead of acting twice.
+const RETRY_POSTS = true;
+// The server's answers about the key itself (see backend/app/idempotency.py).
+const KEY_BUSY = "still in progress"; // 409: the first try is still running; wait and ask again
+const KEY_REUSED = "already used for a different request"; // 422: the form changed since; use a new key
+const detailHas = (e, text) => typeof e.detail === "string" && e.detail.includes(text);
 
 const wait = (ms, signal) =>
   new Promise((resolve, reject) => {
@@ -113,7 +117,8 @@ export async function api(path, { method = "GET", body, form, signal, idempotenc
   const init = { method, credentials: "same-origin", headers, signal };
   const isAuth = path.startsWith("/auth/");
   if (method !== "GET") headers["X-Requested-With"] = "secretary";
-  if (method === "POST" && !isAuth) headers["Idempotency-Key"] = idempotencyKey || newIdempotencyKey();
+  const keyed = method === "POST" && !isAuth;
+  if (keyed) headers["Idempotency-Key"] = idempotencyKey || newIdempotencyKey();
   if (form) {
     init.body = form; // the browser sets the multipart boundary
   } else if (body !== undefined) {
@@ -125,6 +130,7 @@ export async function api(path, { method = "GET", body, form, signal, idempotenc
   // once the server honours it (RETRY_POSTS).
   const canRetry = !isAuth && (method !== "POST" || RETRY_POSTS);
   let attempt = 0;
+  let rekeyed = false;
   for (;;) {
     try {
       const data = await once(path, init);
@@ -138,7 +144,15 @@ export async function api(path, { method = "GET", body, form, signal, idempotenc
           clearCache();
           return null;
         }
-        if (canRetry && RETRY_STATUSES.has(e.status) && attempt < RETRY_DELAYS.length) {
+        // The same key was used for a request with different content (someone edited the form after
+        // a definite answer). This content never ran under that key, so send it once with a new one.
+        if (keyed && !rekeyed && e.status === 422 && detailHas(e, KEY_REUSED)) {
+          headers["Idempotency-Key"] = newIdempotencyKey();
+          rekeyed = true;
+          continue;
+        }
+        const busy = keyed && e.status === 409 && detailHas(e, KEY_BUSY);
+        if (canRetry && (RETRY_STATUSES.has(e.status) || busy) && attempt < RETRY_DELAYS.length) {
           await wait(RETRY_DELAYS[attempt], signal);
           attempt += 1;
           continue;
