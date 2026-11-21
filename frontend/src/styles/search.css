@@ -1,1 +1,230 @@
 /* Global search (trigger button and results dialog). Builds on ../styles.css and the Sheet styles there. */
+
+/* ----- Trigger ----- */
+.search-icon {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.search-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.search-trigger:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.search-trigger-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-trigger kbd {
+  flex: none;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+/* Desktop: the trigger sits at the right, with the user box straight after it */
+@media (min-width: 641px) {
+  .app-header-inner > nav {
+    flex-grow: 0;
+  }
+  .app-header-inner > .search-trigger {
+    margin-left: auto;
+  }
+  .app-header-inner > .search-trigger + .user-box {
+    margin-left: 0;
+  }
+}
+/* Phones: an icon-only 44px button between the brand and sign-out */
+@media (max-width: 640px) {
+  .search-trigger {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    color: var(--text);
+    background: transparent;
+    border-color: transparent;
+  }
+  .search-trigger:active {
+    background: var(--surface-2);
+  }
+  .search-trigger .search-icon {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* ----- Dialog ----- */
+/* Desktop: a wider dialog near the top, growing with its results (like a command palette) */
+dialog.search-sheet {
+  margin-top: 10vh;
+}
+.search-sheet .sheet-panel {
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: min(80vh, 36rem);
+}
+/* The input stays put; only the results scroll */
+.search-sheet .sheet-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+.search-field .search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.4rem 0;
+  font: inherit;
+  font-size: 16px; /* 16px or more stops iOS Safari zooming in on focus */
+  color: var(--text);
+  width: auto;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.search-input::-webkit-search-decoration,
+.search-input::-webkit-search-results-button,
+.search-input::-webkit-search-results-decoration {
+  display: none;
+}
+.search-input::placeholder {
+  color: var(--muted);
+}
+/* The input has no border of its own, so show focus on the whole field */
+.search-field:focus-within {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.search-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.25rem 0 0.5rem;
+}
+.search-results .skeleton {
+  padding: 0 1rem;
+}
+.search-hint,
+.search-empty,
+.search-error {
+  margin: 0;
+  padding: 0.75rem 1rem;
+}
+.search-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+[role="listbox"].is-stale {
+  opacity: 0.6;
+}
+.search-group-label {
+  padding: 0.6rem 1rem 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.search-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 44px;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  padding-left: calc(1rem - 3px);
+  scroll-margin-block: 0.5rem;
+}
+.search-option.is-active {
+  background: var(--surface-2);
+  border-left-color: var(--accent);
+}
+.search-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.search-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.search-sub {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.search-option .chip {
+  flex: none;
+}
+.search-option mark {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 800;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+/* Phones: a tall bottom sheet that rides above the on-screen keyboard (--search-kb, --search-vh come
+   from the visual viewport; they are unset, so these fall back, when no keyboard is showing) */
+@media (max-width: 640px) {
+  dialog.search-sheet {
+    margin: auto 0 var(--search-kb, 0px);
+  }
+  .search-sheet .sheet-panel {
+    width: 100%;
+    height: min(88dvh, var(--search-vh, 100dvh));
+    max-height: none;
+  }
+  .search-option {
+    min-height: 52px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .search-results [role="listbox"] {
+    transition: opacity 0.12s;
+  }
+}
