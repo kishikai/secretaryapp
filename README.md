@@ -1,14 +1,36 @@
 # Secretary
 
-Attendance and event management for a club or society's secretary: members and groups, events with expected attendees, attendance registers with an audit trail, absence figures, reports, and announcements to paste into Messenger. Messages from authorised Messenger group chats (by clipboard or OCR of screenshots) can be reviewed as evidence, but nothing changes a register without the secretary's approval.
+Secretary is a self-hosted app for clubs and societies. It keeps member and group records, schedules events, tracks attendance, and produces absence reports. Secretaries can review messages as evidence before approving register changes, then prepare announcements to copy into Messenger.
 
-## At a glance
+## What it does
 
-- Keep member records and groups organised, then build events from the people expected to attend.
-- Take attendance, save progress, and finalise registers with a record of changes and reopenings.
-- Track absences and download member, event, attendance, and history reports.
-- Review message evidence before applying it to a register; prepare announcements to copy and send yourself.
-- Run it on your own server with role-based accounts and SQLite storage.
+- Organise members and groups, then add expected attendees to each event.
+- Save registers as you take attendance. Finalise or reopen them with a reason, and keep a record of every change.
+- Review clipboard or screenshot messages before applying them to a register. Missing messages never count as absences.
+- Export member, event, attendance, and absence reports as CSV files.
+- Give secretaries, assistants, and viewers the access each role needs.
+- Host the app yourself with Docker and SQLite.
+
+## Screenshots
+
+These screenshots use synthetic demo data.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/overview.png" alt="Secretary dashboard overview with setup checklist, member and event counts, and upcoming event" /></td>
+    <td><img src="docs/screenshots/members.png" alt="Secretary member list with search and group filters" /></td>
+  </tr>
+  <tr>
+    <td align="center">Overview</td>
+    <td align="center">Members</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/register.png" alt="Event attendance register with present, late, absent, and not recorded statuses" /></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">Taking attendance</td>
+  </tr>
+</table>
 
 **Secretaries start with [docs/secretary-guide.md](docs/secretary-guide.md).** To put it on a server, see [docs/deploy.md](docs/deploy.md) (Docker, private on Tailscale or public with HTTPS). The rest of this README is for developers.
 
@@ -405,7 +427,7 @@ npm run build    # production build in dist/
 
 Set `BACKEND_URL` to point the dev proxy at a different backend. Sign in with the account from `python -m app.admin create-user`. After `npm run build`, the backend itself serves the dashboard at `http://127.0.0.1:8000/` (see "Sign-in and security"), so no separate web server is needed.
 
-The dashboard has four tabs: Overview (status, totals, messages per day, categories), Messages (search, filters, message details with every extraction, screenshot upload), Notifications (unread badge, mark read) and Rules (create, enable or disable, notify, backfill, delete).
+The dashboard includes Overview, Members, Groups, Events, Announcements, Absences, and Review. Secretaries also have message collection, notifications, and rules when those features are enabled. Available pages depend on the signed-in role.
 
 ## Clipboard collector
 
@@ -437,15 +459,3 @@ cd collector
 pip install pytest
 python -m pytest -q
 ```
-
-## Status
-
-- Sprint 1 foundation: backend, database connection, starter endpoints, frontend, tests.
-- Included: clipboard collector, text normalisation and duplicate detection.
-- Sprint 3: OCR of screenshots into stored messages (`POST /ocr/screenshots`, pluggable engine, PaddleOCR optional).
-- Sprint 4: one pipeline for clipboard and OCR that merges the same message across sources (exact, normalised and fuzzy matching), keeps every extraction in `message_variants`, and migrates existing databases.
-- Sprint 5: full-text search and list filters on `GET /messages` (`q`, `chat_id`, `sender`, `source`, `since`, `until`, `before_id`), and database backups with retention (`python -m app.backup`).
-- Sprint 6: automation engine: keyword and predefined-pattern rules, categories, in-app notifications, backfill (`/rules`, `/notifications`, `category` filter on `GET /messages`).
-- Sprint 7: sign-in (admin accounts with scrypt passwords, 12-hour session cookies, CSRF header, login rate limit), ingest tokens for the collector, every route protected (checked by a route-audit test), security headers, `GET /stats` and `GET /chats`, an admin CLI (`python -m app.admin`), and the dashboard served by the backend.
-- Sprint 8: testing and optimisation. 253 backend and 27 collector tests (96% and 89% line coverage), an end-to-end workflow test, database-integrity tests, a performance benchmark (`python -m eval.perf_bench`, every call under 65 ms at 100,000 messages), a dependency audit (FastAPI stack upgraded past 8 Starlette advisories) and upload limits against decompression bombs. Full results, bug reports and known limitations: [`docs/test-report.md`](docs/test-report.md).
-- Not yet included: sender names and timestamps (clipboard and OCR), a Docker image, and, as possible future work now that sign-in exists, custom regexes, webhooks and email.
