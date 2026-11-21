@@ -25,6 +25,23 @@
 .clear-filters {
   align-self: start;
 }
+.event-rows.is-loading {
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+/* Filters bottom sheet (phones): fields stacked, one column, 16px text so iOS doesn't zoom */
+.filters-sheet-fields {
+  display: grid;
+  gap: 0.25rem;
+}
+.filters-sheet-fields select,
+.filters-sheet-fields input {
+  font-size: 1rem;
+  width: 100%;
+}
+.filters-sheet .sheet-foot .grow {
+  flex: 1 1 10rem;
+}
 .facts-line span + span::before {
   content: "· ";
 }
@@ -76,6 +93,22 @@
 .menu > summary:hover,
 .menu[open] > summary {
   background: var(--surface-2);
+}
+/* On phones "More" is a button that opens a bottom sheet; it looks like the desktop menu's summary. */
+.menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  touch-action: manipulation;
+}
+.menu-btn::after {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-0.1rem) rotate(45deg);
 }
 .menu-panel {
   position: absolute;
@@ -230,6 +263,83 @@
 }
 
 /* ===== Register ===== */
+.reg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.reg-head h2 {
+  margin: 0;
+}
+/* The shortcut list only helps where there is a physical keyboard and a mouse. */
+.reg-shortcuts-btn {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .reg-shortcuts-btn {
+    display: inline-flex;
+    font-size: 0.875rem;
+  }
+}
+.reg-draft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0 0.75rem;
+}
+.reg-draft p {
+  flex: 1 1 14rem;
+  margin: 0;
+}
+.reg-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.reg-row {
+  scroll-margin-block: 4rem 7rem; /* keep a row clear of the sticky save bar when moving with the keyboard */
+}
+.kbd-intro {
+  margin: 0 0 0.75rem;
+}
+.kbd-list {
+  margin: 0;
+}
+.kbd-list > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+}
+.kbd-list > div:first-child {
+  border-top: 0;
+}
+.kbd-list dt {
+  flex: 0 0 7.5rem;
+  white-space: nowrap;
+}
+.kbd-list dd {
+  margin: 0;
+  min-width: 0;
+}
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0.1em 0.45em;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 0.85em;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+}
 .reg-tools {
   display: flex;
   gap: 0.5rem;
@@ -400,7 +510,8 @@
     flex: 1 1 100%;
   }
   .detail-head .actions > button,
-  .detail-head .actions > .menu {
+  .detail-head .actions > .menu,
+  .detail-head .actions > .menu-btn {
     flex: 1 1 auto;
   }
   .detail-head .actions > .menu > summary {

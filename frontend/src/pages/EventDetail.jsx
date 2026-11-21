@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api.js";
+import { api, isAbort, swr } from "../api.js";
 import { daySpan, errorText, formatDayShort, formatEventWhen } from "../format.js";
+import Sheet from "../Sheet.jsx";
+import { SkeletonBlock, SkeletonRows, useIsPhone } from "../ui.jsx";
 import Attendees from "./Attendees.jsx";
 import EventForm from "./EventForm.jsx";
 import Register from "./Register.jsx";
-import { StatusChip, goToEvent } from "./eventUi.jsx";
+import { StatusChip, goToEvent, useIdempotencyKey } from "./eventUi.jsx";
 
 const CONFIRMS = {
   cancelled: {
@@ -32,18 +34,33 @@ export default function EventDetail({ id, role }) {
   const [actionError, setActionError] = useState("");
   const menuRef = useRef(null);
   const keepRef = useRef(null);
+  const phone = useIsPhone();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const duplicateKey = useIdempotencyKey();
+  const splitKey = useIdempotencyKey();
 
-  const load = useCallback(() => {
-    return api(`/events/${encodeURIComponent(id)}`)
-      .then((ev) => {
-        setEvent(ev);
-        setError("");
-      })
-      .catch((e) => setError(errorText(e)));
-  }, [id]);
+  // The path must match the one the shell prefetches. A cached copy shows at once and is replaced by the fresh one;
+  // if the fresh load fails the cached copy stays and the error shows above it.
+  const load = useCallback(
+    (signal) =>
+      swr(
+        `/events/${encodeURIComponent(id)}`,
+        (ev) => {
+          setEvent(ev);
+          setError("");
+        },
+        { signal },
+      ).catch((e) => {
+        if (!isAbort(e)) setError(errorText(e));
+      }),
+    [id],
+  );
   useEffect(() => {
-    load();
+    const ctl = new AbortController();
+    load(ctl.signal);
+    return () => ctl.abort();
   }, [load]);
+  const reload = useCallback(() => load(), [load]);
 
   useEffect(() => {
     if (event) headRef.current?.focus();
@@ -86,11 +103,12 @@ export default function EventDetail({ id, role }) {
   const setStatus = (status) =>
     run(async () => {
       await api(`/events/${event.id}`, { method: "PATCH", body: { status } });
-      await load();
+      await reload();
     });
   const duplicate = () =>
     run(async () => {
-      const copy = await api(`/events/${event.id}/duplicate`, { method: "POST" });
+      const copy = await api(`/events/${event.id}/duplicate`, { method: "POST", idempotencyKey: duplicateKey.get(String(event.id)) });
+      duplicateKey.renew();
       goToEvent(copy.id);
     });
   const remove = () =>
@@ -101,10 +119,11 @@ export default function EventDetail({ id, role }) {
 
   const split = () =>
     run(async () => {
-      const r = await api(`/events/${event.id}/split-days`, { method: "POST" });
+      const r = await api(`/events/${event.id}/split-days`, { method: "POST", idempotencyKey: splitKey.get(String(event.id)) });
+      splitKey.renew();
       const first = r.events?.[0]?.id ?? event.id;
       // Day 1 is this same event, so the address doesn't change: reload it to show the days.
-      if (String(first) === String(event.id)) await load();
+      if (String(first) === String(event.id)) await reload();
       else goToEvent(first);
     });
 
@@ -123,7 +142,10 @@ export default function EventDetail({ id, role }) {
             {error}
           </p>
         ) : (
-          <p className="muted">Loading…</p>
+          <>
+            <SkeletonBlock lines={3} label="Loading event" />
+            <SkeletonRows rows={5} label="Loading the register" />
+          </>
         )}
       </>
     );
@@ -147,6 +169,33 @@ export default function EventDetail({ id, role }) {
     closeMenu(true);
     fn();
   };
+  // In the bottom sheet: close it first; a destructive choice then shows its inline confirmation.
+  const pickInSheet = (fn) => () => {
+    setMoreOpen(false);
+    fn();
+  };
+  const moreItems = (choose) => (
+    <>
+      <button type="button" disabled={busy} onClick={choose(duplicate)}>
+        Duplicate
+      </button>
+      {splittable && (
+        <button type="button" disabled={busy} onClick={choose(() => setConfirm("split"))}>
+          Take attendance each day
+        </button>
+      )}
+      {open && (
+        <button type="button" disabled={busy} onClick={choose(() => setConfirm("cancelled"))}>
+          Cancel event
+        </button>
+      )}
+      {event.status === "draft" && role === "secretary" && (
+        <button type="button" className="danger" disabled={busy} onClick={choose(() => setConfirm("delete"))}>
+          Delete
+        </button>
+      )}
+    </>
+  );
 
   return (
     <>
@@ -173,38 +222,30 @@ export default function EventDetail({ id, role }) {
             <button type="button" disabled={busy} onClick={() => setEditing(true)}>
               {open ? "Edit" : "Edit notes"}
             </button>
-            <details
-              className="menu"
-              ref={menuRef}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.stopPropagation();
-                  closeMenu(true);
-                }
-              }}
-            >
-              <summary>More</summary>
-              <div className="menu-panel">
-                <button type="button" disabled={busy} onClick={pick(duplicate)}>
-                  Duplicate
+            {phone ? (
+              <>
+                <button type="button" className="menu-btn" aria-haspopup="dialog" onClick={() => setMoreOpen(true)}>
+                  More
                 </button>
-                {splittable && (
-                  <button type="button" disabled={busy} onClick={pick(() => setConfirm("split"))}>
-                    Take attendance each day
-                  </button>
-                )}
-                {open && (
-                  <button type="button" disabled={busy} onClick={pick(() => setConfirm("cancelled"))}>
-                    Cancel event
-                  </button>
-                )}
-                {event.status === "draft" && role === "secretary" && (
-                  <button type="button" className="danger" disabled={busy} onClick={pick(() => setConfirm("delete"))}>
-                    Delete
-                  </button>
-                )}
-              </div>
-            </details>
+                <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="More actions">
+                  <div className="sheet-menu">{moreItems(pickInSheet)}</div>
+                </Sheet>
+              </>
+            ) : (
+              <details
+                className="menu"
+                ref={menuRef}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    closeMenu(true);
+                  }
+                }}
+              >
+                <summary>More</summary>
+                <div className="menu-panel">{moreItems(pick)}</div>
+              </details>
+            )}
           </div>
         )}
       </div>
@@ -227,6 +268,11 @@ export default function EventDetail({ id, role }) {
           </span>
         </div>
       )}
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
       {actionError && (
         <p role="alert" className="error">
           {actionError}
@@ -239,7 +285,7 @@ export default function EventDetail({ id, role }) {
           onCancel={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
-            load();
+            reload();
           }}
         />
       ) : (
@@ -274,8 +320,8 @@ export default function EventDetail({ id, role }) {
         </section>
       )}
 
-      {(event.status === "scheduled" || event.status === "completed") && <Register event={event} role={role} onChanged={load} />}
-      <Attendees event={event} canEdit={canEdit && open} inSeries={inSeries} defaultOpen={event.status === "draft" || (event.attendees ?? []).length === 0} onChanged={load} />
+      {(event.status === "scheduled" || event.status === "completed") && <Register event={event} role={role} onChanged={reload} />}
+      <Attendees event={event} canEdit={canEdit && open} inSeries={inSeries} defaultOpen={event.status === "draft" || (event.attendees ?? []).length === 0} onChanged={reload} />
       {event.status === "draft" && <p className="muted">Schedule the event to take attendance.</p>}
     </>
   );

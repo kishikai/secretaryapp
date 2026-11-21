@@ -1,6 +1,8 @@
 import { useEffect, useId, useState } from "react";
-import { api, isAbort, query } from "../api.js";
+import { isAbort, query, swr } from "../api.js";
 import { STATUS_LABELS, daysAgoLocal, errorText, formatEventWhen, plural, todayLocal } from "../format.js";
+import Sheet from "../Sheet.jsx";
+import { SkeletonRows, useIsPhone } from "../ui.jsx";
 import EventDetail from "./EventDetail.jsx";
 import EventForm from "./EventForm.jsx";
 import { StatusChip, goToEvent } from "./eventUi.jsx";
@@ -22,8 +24,10 @@ function EventList({ role }) {
   const [status, setStatus] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [events, setEvents] = useState(null);
+  const [data, setData] = useState(null); // { path, list }: the last answer, kept while the next one loads
   const [error, setError] = useState("");
+  const phone = useIsPhone();
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 300);
@@ -38,16 +42,25 @@ function EventList({ role }) {
   if (scope === "upcoming" && (!dateFrom || dateFrom < today)) from = today;
   if (scope === "past" && (!dateTo || dateTo > yesterday)) to = yesterday;
 
+  // Must match the path the shell prefetches for the default (Upcoming) list.
+  const path = `/events${query({ q: debouncedQ, status, date_from: from, date_to: to })}`;
   useEffect(() => {
     const ctl = new AbortController();
-    api(`/events${query({ q: debouncedQ, status, date_from: from, date_to: to })}`, { signal: ctl.signal })
-      .then((list) => {
-        setEvents(list);
+    setError("");
+    swr(
+      path,
+      (list) => {
+        setData({ path, list });
         setError("");
-      })
-      .catch((e) => !isAbort(e) && setError(errorText(e)));
+      },
+      { signal: ctl.signal },
+    ).catch((e) => !isAbort(e) && setError(errorText(e)));
     return () => ctl.abort();
-  }, [debouncedQ, status, from, to]);
+  }, [path]);
+
+  // After a failed load, an answer for other filters would be misleading, so it is hidden.
+  const events = data && (data.path === path || !error) ? data.list : null;
+  const loading = Boolean(events) && data.path !== path;
 
   const filtersSet = Boolean(status || dateFrom || dateTo);
   const activeFilters = [status, dateFrom, dateTo].filter(Boolean).length;
@@ -56,6 +69,36 @@ function EventList({ role }) {
     setDateFrom("");
     setDateTo("");
   };
+  const filterFields = (
+    <>
+      <div className="field">
+        <label htmlFor={`${id}-status`}>Status</label>
+        <select id={`${id}-status`} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">All</option>
+          {Object.entries(STATUS_LABELS).map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="field">
+        <label htmlFor={`${id}-from`}>From date</label>
+        <input id={`${id}-from`} type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor={`${id}-to`}>To date</label>
+        <input id={`${id}-to`} type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+      </div>
+      {filtersSet && !phone && (
+        <div className="field">
+          <button type="button" className="text-button clear-filters" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </div>
+      )}
+    </>
+  );
   const shownEvents = events && scope === "past" ? [...events].reverse() : events;
   const emptyText =
     filtersSet || debouncedQ
@@ -90,7 +133,13 @@ function EventList({ role }) {
 
       <div className="searchbar">
         <input type="search" aria-label="Search events" enterKeyHint="search" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, place or category" />
-        <button type="button" className="filters-toggle" aria-expanded={showFilters} aria-controls={`${id}-filters`} onClick={() => setShowFilters((v) => !v)}>
+        <button
+          type="button"
+          className="filters-toggle"
+          {...(phone
+            ? { "aria-haspopup": "dialog", onClick: () => setSheetOpen(true) }
+            : { "aria-expanded": showFilters, "aria-controls": `${id}-filters`, onClick: () => setShowFilters((v) => !v) })}
+        >
           {activeFilters ? `Filters (${activeFilters})` : "Filters"}
         </button>
         {events && (
@@ -99,35 +148,32 @@ function EventList({ role }) {
           </span>
         )}
       </div>
-      {showFilters && (
+      {showFilters && !phone && (
         <div className="card filters filters-panel" id={`${id}-filters`}>
-          <div className="field">
-            <label htmlFor={`${id}-status`}>Status</label>
-            <select id={`${id}-status`} value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">All</option>
-              {Object.entries(STATUS_LABELS).map(([v, label]) => (
-                <option key={v} value={v}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor={`${id}-from`}>From date</label>
-            <input id={`${id}-from`} type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor={`${id}-to`}>To date</label>
-            <input id={`${id}-to`} type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-          </div>
-          {filtersSet && (
-            <div className="field">
-              <button type="button" className="text-button clear-filters" onClick={clearFilters}>
-                Clear filters
-              </button>
-            </div>
-          )}
+          {filterFields}
         </div>
+      )}
+      {phone && (
+        <Sheet
+          open={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+          title="Filters"
+          className="filters-sheet"
+          footer={
+            <>
+              <button type="button" className="primary grow" onClick={() => setSheetOpen(false)}>
+                {events ? `Show ${plural(events.length, "event", "events")}` : "Show events"}
+              </button>
+              {filtersSet && (
+                <button type="button" onClick={clearFilters}>
+                  Clear filters
+                </button>
+              )}
+            </>
+          }
+        >
+          <div className="filters-sheet-fields">{filterFields}</div>
+        </Sheet>
       )}
 
       {error && (
@@ -135,7 +181,7 @@ function EventList({ role }) {
           {error}
         </p>
       )}
-      {!events && !error && <p className="muted">Loading…</p>}
+      {!events && !error && <SkeletonRows rows={6} label="Loading events" />}
       {events && events.length === 0 && (
         <p className="empty">
           {emptyText}
@@ -143,7 +189,7 @@ function EventList({ role }) {
         </p>
       )}
       {shownEvents && shownEvents.length > 0 && (
-        <ul className="rows event-rows">
+        <ul className={`rows event-rows${loading ? " is-loading" : ""}`} aria-busy={loading || undefined}>
           {shownEvents.map((ev) => {
             const day = String(ev.starts_at ?? "").slice(0, 10);
             const isToday = day === today;

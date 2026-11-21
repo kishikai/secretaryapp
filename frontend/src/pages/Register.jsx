@@ -1,18 +1,58 @@
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { api } from "../api.js";
 import { errorText, formatTime, plural } from "../format.js";
+import Sheet from "../Sheet.jsx";
+import { ATTENDANCE_LABELS as LABELS, attendanceLabel as label } from "./eventUi.jsx";
 
-const LABELS = {
-  not_recorded: "Not recorded",
-  present: "Present",
-  late: "Late",
-  late_excused: "Late (excused)",
-  absent: "Absent",
-  absent_excused: "Absent (excused)",
-};
 const COUNT_ORDER = ["not_recorded", "present", "late", "late_excused", "absent", "absent_excused"];
-// "excused" was retired; the change history may still contain it.
-const label = (s) => (s === "excused" ? "Excused" : (LABELS[s] ?? "Not recorded"));
+
+// ----- Unsaved marks kept on this device (the shell clears this prefix on sign-out) -----
+const DRAFT_PREFIX = "secretary.registerDraft.";
+const draftKey = (eventId) => `${DRAFT_PREFIX}${eventId}`;
+const VALID_STATUS = new Set(COUNT_ORDER);
+
+function readDraft(eventId) {
+  try {
+    const d = JSON.parse(localStorage.getItem(draftKey(eventId)) ?? "null");
+    if (!d || typeof d.edits !== "object" || d.edits === null) return null;
+    const edits = {};
+    for (const [id, st] of Object.entries(d.edits)) if (VALID_STATUS.has(st)) edits[id] = st;
+    return { edits, reason: typeof d.reason === "string" ? d.reason : "", at: typeof d.at === "string" ? d.at : "" };
+  } catch {
+    return null;
+  }
+}
+function writeDraft(eventId, draft) {
+  try {
+    localStorage.setItem(draftKey(eventId), JSON.stringify(draft));
+  } catch {
+    // storage full or unavailable: the marks just aren't kept
+  }
+}
+function removeDraft(eventId) {
+  try {
+    localStorage.removeItem(draftKey(eventId));
+  } catch {
+    // ignore
+  }
+}
+
+// Keyboard shortcuts must never fire while typing.
+const isTyping = (el) =>
+  el instanceof Element &&
+  (el.closest("textarea, select, [contenteditable]:not([contenteditable='false'])") !== null ||
+    (el.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "reset"].includes(el.type)));
+
+const SHORTCUTS = [
+  [["↑", "↓"], "Previous or next person (j and k also work)"],
+  [["p"], "Present"],
+  [["l"], "Late"],
+  [["a"], "Absent"],
+  [["e"], "Toggle excused (for late or absent)"],
+  [["x"], "Clear (not recorded); Delete or Backspace also work"],
+  [["Ctrl", "S"], "Save (Cmd + S on a Mac)"],
+  [["?"], "Show this list"],
+];
 
 function auditText(a) {
   if (a.action === "finalize") return "Register finalised";
@@ -120,11 +160,93 @@ export default function Register({ event, role, onChanged }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [draft, setDraft] = useState(() => readDraft(event.id)); // marks kept on this device from an earlier visit
+  const [helpOpen, setHelpOpen] = useState(false);
+  const headRef = useRef(null);
+  const pendingDraft = useRef(null);
+  const holdRef = useRef(false);
+  const prevUnsaved = useRef(0);
 
   const saved = (a) => a.status ?? "not_recorded";
   const effective = (a) => (finalised ? saved(a) : (edits[a.member_id] ?? saved(a)));
   const changes = attendees.filter((a) => edits[a.member_id] !== undefined && edits[a.member_id] !== saved(a));
   const unsaved = changes.length;
+  const editable = canRecord && !finalised;
+
+  // Drafted marks that still mean something: the person is on the list and the mark differs from the saved one.
+  const draftMarks = {};
+  if (draft && editable) {
+    for (const a of attendees) {
+      const d = draft.edits[a.member_id];
+      if (d !== undefined && d !== saved(a)) draftMarks[a.member_id] = d;
+    }
+  }
+  const draftCount = Object.keys(draftMarks).length;
+  const hold = draftCount > 0; // while the notice waits for an answer, the stored draft isn't overwritten
+  holdRef.current = hold;
+  const snapshot = JSON.stringify(Object.fromEntries(changes.map((a) => [a.member_id, edits[a.member_id]])));
+
+  // The key used by the effects below
+  useEffect(() => {
+    setDraft(readDraft(event.id));
+  }, [event.id]);
+
+  const dropStored = useCallback(() => {
+    pendingDraft.current = null;
+    removeDraft(event.id);
+  }, [event.id]);
+  const flushDraft = useCallback(() => {
+    const p = pendingDraft.current;
+    pendingDraft.current = null;
+    if (p) writeDraft(p.id, p.data);
+  }, []);
+
+  // Keep unsaved marks on the device (debounced), so a dropped connection or a closed tab doesn't lose them.
+  useEffect(() => {
+    if (unsaved === 0 || finalised || hold) {
+      pendingDraft.current = null;
+      return undefined;
+    }
+    pendingDraft.current = { id: event.id, data: { edits: JSON.parse(snapshot), reason, at: new Date().toISOString() } };
+    const t = setTimeout(flushDraft, 300);
+    return () => clearTimeout(t);
+  }, [snapshot, reason, unsaved, finalised, hold, event.id, flushDraft]);
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushDraft();
+    };
+    window.addEventListener("pagehide", flushDraft);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", flushDraft);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, [flushDraft]);
+  // Back to nothing unsaved (saved, or every mark undone): the stored copy is no longer needed.
+  useEffect(() => {
+    if (prevUnsaved.current > 0 && unsaved === 0 && !holdRef.current) dropStored();
+    prevUnsaved.current = unsaved;
+  }, [unsaved, dropStored]);
+  // A finalised register has nothing left to save.
+  useEffect(() => {
+    if (finalised) {
+      dropStored();
+      setDraft(null);
+    }
+  }, [finalised, dropStored]);
+
+  const restoreDraft = () => {
+    setNotice("");
+    setEdits((cur) => ({ ...draftMarks, ...cur })); // marks made since then win
+    if (draft.reason) setReason((r) => r || draft.reason);
+    setDraft(null);
+    headRef.current?.focus();
+  };
+  const discardDraft = () => {
+    removeDraft(event.id);
+    setDraft(null);
+    headRef.current?.focus();
+  };
 
   // While there is unsaved work, warn before the page closes and before any in-app link (tabs, "All events", day links) leaves it.
   useEffect(() => {
@@ -186,6 +308,7 @@ export default function Register({ event, role, onChanged }) {
       setNoteOpen(false);
       setReopenReason("");
       setStep(null);
+      if (!holdRef.current) dropStored();
       await onChanged();
       setRefreshKey((k) => k + 1);
       setNotice(doneText);
@@ -207,6 +330,59 @@ export default function Register({ event, role, onChanged }) {
   const reopen = () =>
     run(() => api(`/events/${event.id}/reopen`, { method: "POST", body: { reason: reopenReason.trim() } }), "Register reopened. You can change it again.");
 
+  // ----- Keyboard shortcuts (desktop) -----
+  // Ctrl/Cmd+S and "?" work anywhere on the page while the register is editable; the rest only inside the list.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const canSave = editable && unsaved > 0 && !busy;
+  useEffect(() => {
+    if (!editable || attendees.length === 0) return undefined;
+    const onKey = (e) => {
+      if (e.isComposing) return;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s") {
+        if (canSave) {
+          e.preventDefault();
+          saveRef.current();
+        }
+        return;
+      }
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey && !isTyping(e.target) && !document.querySelector("dialog[open]")) {
+        e.preventDefault();
+        setHelpOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [editable, attendees.length, canSave]);
+
+  const onListKeyDown = (e) => {
+    if (!editable || busy || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    const row = e.target instanceof Element ? e.target.closest("[data-member]") : null;
+    if (!row) return;
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (key === "ArrowDown" || key === "ArrowUp" || key === "j" || key === "k") {
+      const rows = [...e.currentTarget.querySelectorAll("[data-member]")];
+      const other = rows[rows.indexOf(row) + (key === "ArrowDown" || key === "j" ? 1 : -1)];
+      e.preventDefault();
+      if (other) (other.querySelector('.reg-btn[aria-pressed="true"]') ?? other.querySelector(".reg-btn"))?.focus();
+      return;
+    }
+    const a = attendees.find((x) => String(x.member_id) === row.dataset.member);
+    if (!a) return;
+    const value = effective(a);
+    const excused = isExcused(value);
+    const main = mainOf(value);
+    let next = null;
+    if (key === "p") next = "present";
+    else if (key === "l") next = excused ? "late_excused" : "late";
+    else if (key === "a") next = excused ? "absent_excused" : "absent";
+    else if (key === "e") next = main === "late" || main === "absent" ? (excused ? main : `${main}_excused`) : undefined;
+    else if (key === "x" || key === "Delete" || key === "Backspace") next = "not_recorded";
+    else return;
+    e.preventDefault();
+    if (next && next !== value) setOne(a, next);
+  };
+
   const needle = search.trim().toLowerCase();
   // A row with an unsaved edit stays visible so it doesn't vanish the moment it is marked.
   const shown = attendees.filter(
@@ -216,7 +392,6 @@ export default function Register({ event, role, onChanged }) {
   );
   const filterName = statusFilter ? label(statusFilter).toLowerCase() : "";
   const noneText = !statusFilter ? "No one on the list matches that name." : needle ? "No one matches." : `No one is ${filterName}.`;
-  const editable = canRecord && !finalised;
   const notRecorded = counts.not_recorded;
   const showBar = editable && attendees.length > 0;
 
@@ -236,7 +411,32 @@ export default function Register({ event, role, onChanged }) {
 
   return (
     <section className="card register-card" aria-labelledby={`${uid}-h`}>
-      <h2 id={`${uid}-h`}>Register</h2>
+      <div className="reg-head">
+        <h2 id={`${uid}-h`} tabIndex={-1} ref={headRef}>
+          Register
+        </h2>
+        {editable && attendees.length > 0 && (
+          <button type="button" className="text-button reg-shortcuts-btn" aria-haspopup="dialog" onClick={() => setHelpOpen(true)}>
+            Keyboard shortcuts
+          </button>
+        )}
+      </div>
+
+      {draftCount > 0 && (
+        <div role="status" className="notice reg-draft">
+          <p>
+            You have {plural(draftCount, "unsaved mark", "unsaved marks")} from {formatTime(draft.at) || "an earlier visit"} on this device.
+          </p>
+          <span className="reg-draft-actions">
+            <button type="button" className="primary" onClick={restoreDraft}>
+              Restore
+            </button>
+            <button type="button" onClick={discardDraft}>
+              Discard
+            </button>
+          </span>
+        </div>
+      )}
 
       {finalised && (
         <p role="status" className="banner">
@@ -287,12 +487,12 @@ export default function Register({ event, role, onChanged }) {
             </p>
           )}
           {shown.length === 0 && <p className="empty">{noneText}</p>}
-          <ul className="reg-list">
+          <ul className="reg-list" onKeyDown={onListKeyDown}>
             {shown.map((a) => {
               const value = effective(a);
               const changed = editable && edits[a.member_id] !== undefined;
               return (
-                <li key={a.member_id} className={`reg-row${editable ? " is-edit" : ""}`}>
+                <li key={a.member_id} data-member={a.member_id} className={`reg-row${editable ? " is-edit" : ""}`}>
                   <div className="reg-who">
                     <strong>{a.full_name}</strong>
                     {!a.active && <span className="chip">Inactive</span>}
@@ -417,6 +617,25 @@ export default function Register({ event, role, onChanged }) {
           {errorEl}
         </div>
       )}
+
+      <Sheet open={helpOpen} onClose={() => setHelpOpen(false)} title="Keyboard shortcuts">
+        <p className="muted kbd-intro">Click or Tab into the list of people first. Shortcuts don&rsquo;t work while you are typing in a box.</p>
+        <dl className="kbd-list">
+          {SHORTCUTS.map(([keys, what]) => (
+            <div key={what}>
+              <dt>
+                {keys.map((k, i) => (
+                  <span key={k}>
+                    {i > 0 && (keys[0] === "Ctrl" ? " + " : " ")}
+                    <kbd>{k}</kbd>
+                  </span>
+                ))}
+              </dt>
+              <dd>{what}</dd>
+            </div>
+          ))}
+        </dl>
+      </Sheet>
     </section>
   );
 }

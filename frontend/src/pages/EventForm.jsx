@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api.js";
 import { MAX_SPLIT_DAYS, daySpan, errorText, toLocalInput } from "../format.js";
+import { useIdempotencyKey } from "./eventUi.jsx";
 
 // Create (event = null) or edit. A completed or cancelled event only lets the notes change.
 export default function EventForm({ event, onSaved, onCancel }) {
@@ -20,6 +21,8 @@ export default function EventForm({ event, onSaved, onCancel }) {
   const [error, setError] = useState("");
   const [split, setSplit] = useState(true);
   const [createdId, setCreatedId] = useState(null); // set when the event was created but splitting it failed
+  const createKey = useIdempotencyKey();
+  const splitKey = useIdempotencyKey();
   const span = event ? null : daySpan(f.starts_at, f.ends_at);
   const canSplit = Boolean(span && span.timesOk && !span.tooLong);
   const locked = event && (event.status === "completed" || event.status === "cancelled");
@@ -56,10 +59,14 @@ export default function EventForm({ event, onSaved, onCancel }) {
         await api(`/events/${event.id}`, { method: "PATCH", body });
         onSaved();
       } else {
-        const created = await api("/events", { method: "POST", body: { ...body, status } });
+        const payload = { ...body, status };
+        // The same key for the same form contents: tapping again after a dropped connection can't add a second copy.
+        const created = await api("/events", { method: "POST", body: payload, idempotencyKey: createKey.get(JSON.stringify(payload)) });
+        createKey.renew();
         if (canSplit && split) {
           try {
-            const r = await api(`/events/${created.id}/split-days`, { method: "POST" });
+            const r = await api(`/events/${created.id}/split-days`, { method: "POST", idempotencyKey: splitKey.get(String(created.id)) });
+            splitKey.renew();
             onSaved(r.events?.[0] ?? created);
           } catch (err) {
             setCreatedId(created.id);
