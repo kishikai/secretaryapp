@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, onUnauthorized } from "./api.js";
+import { flushSync } from "react-dom";
+import { api, clearCache, onUnauthorized, prefetch } from "./api.js";
+import { dataPathFor } from "./prefetch.js";
+import { Toaster } from "./toast.jsx";
+import { prefersReducedMotion } from "./ui.jsx";
+import GlobalSearch from "./Search.jsx";
 import Login from "./pages/Login.jsx";
 import Overview from "./pages/Overview.jsx";
 import Messages from "./pages/Messages.jsx";
@@ -71,14 +76,66 @@ function readTab(tabs) {
 function useHashTab(tabs) {
   const [hash, setHash] = useState(window.location.hash);
   useEffect(() => {
-    const onChange = () => setHash(window.location.hash);
+    // A page change cross-fades where the browser supports view transitions (not with reduced motion).
+    const onChange = () => {
+      const update = () => flushSync(() => setHash(window.location.hash));
+      if (document.startViewTransition && !prefersReducedMotion() && !document.hidden) document.startViewTransition(update);
+      else update();
+    };
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
   return useMemo(() => readTab(tabs), [hash, tabs]);
 }
 
+// Start loading a link's page as soon as it is pressed (or hovered for a moment with a mouse),
+// so the data is usually there by the time the tap or click finishes.
+function usePrefetchOnPress() {
+  useEffect(() => {
+    let hoverTimer = null;
+    const linkPath = (e) => {
+      const a = e.target instanceof Element ? e.target.closest('a[href^="#"]') : null;
+      return a ? dataPathFor(a.getAttribute("href")) : null;
+    };
+    const onDown = (e) => {
+      const p = linkPath(e);
+      if (p) prefetch(p);
+    };
+    const onOver = (e) => {
+      if (e.pointerType !== "mouse") return;
+      clearTimeout(hoverTimer);
+      const p = linkPath(e);
+      if (p) hoverTimer = setTimeout(() => prefetch(p), 120);
+    };
+    const onOut = () => clearTimeout(hoverTimer);
+    document.addEventListener("pointerdown", onDown, { passive: true });
+    document.addEventListener("pointerover", onOver, { passive: true });
+    document.addEventListener("pointerout", onOut, { passive: true });
+    return () => {
+      clearTimeout(hoverTimer);
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("pointerover", onOver);
+      document.removeEventListener("pointerout", onOut);
+    };
+  }, []);
+}
+
+// Unsaved register marks kept on this device (see Register.jsx). Removed when someone signs out,
+// so the next person on a shared device doesn't see them.
+const DRAFT_PREFIX = "secretary.registerDraft.";
+function clearDrafts() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(DRAFT_PREFIX)) localStorage.removeItem(k);
+    }
+  } catch {
+    // storage blocked: nothing was kept
+  }
+}
+
 function Shell({ user, onSignOut }) {
+  usePrefetchOnPress();
   const isSecretary = user.role === "secretary";
   const isViewer = user.role === "viewer";
   const tabs = useMemo(() => TABS.filter((t) => !HIDDEN_TABS.includes(t.id) && (isSecretary || !t.secretaryOnly) && (!isViewer || !t.editorOnly)), [isSecretary, isViewer]);
@@ -173,6 +230,7 @@ function Shell({ user, onSignOut }) {
               ))}
             </ul>
           </nav>
+          <GlobalSearch />
           <div className="user-box">
             <span className="muted">{user.username}</span>
             <button type="button" onClick={onSignOut}>
@@ -188,6 +246,7 @@ function Shell({ user, onSignOut }) {
           </p>
         </div>
       )}
+      <Toaster />
       <main id="main" className="page">
         {tab === "overview" && <Overview role={user.role} />}
         {tab === "members" && <Members role={user.role} groupParam={params.get("group")} idParam={params.get("id")} />}
@@ -222,6 +281,7 @@ export default function App() {
   useEffect(
     () =>
       onUnauthorized(() => {
+        clearCache();
         setNotice("Your session ended. Sign in again.");
         setUser(null);
       }),
@@ -234,6 +294,8 @@ export default function App() {
     } catch {
       // leave the screen either way
     }
+    clearCache();
+    clearDrafts();
     setNotice("");
     setUser(null);
   };
