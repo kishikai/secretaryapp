@@ -15,7 +15,7 @@ from app.events_api import check_day
 router = APIRouter(dependencies=[Depends(require_user)])
 
 RECORDED = ("present", "late", "late_excused", "absent", "absent_excused")
-COUNTED = "e.finalized_at IS NOT NULL AND e.status <> 'cancelled'"
+COUNTED = "e.finalized_at IS NOT NULL AND e.status <> 'cancelled' AND a.status <> 'no_practice'"
 STATUS_SUMS = (
     "COUNT(*) AS events, "
     + ", ".join(f"COALESCE(SUM(a.status = '{s}'), 0) AS {s}" for s in RECORDED)
@@ -93,6 +93,9 @@ def member_attendance(member_id: int, request: Request):
     rows = [{**dict(r), "finalized": bool(r["finalized"]), "counted": bool(r["counted"])} for r in rows]
     counted = [r["status"] for r in rows if r["counted"]]
     summary = {"events": len(counted), **{s: counted.count(s) for s in RECORDED}}
+    summary["no_practice"] = sum(
+        r["status"] == "no_practice" and r["finalized"] and r["event_status"] != "cancelled" for r in rows
+    )
     summary["absence_rate"] = rate(summary)
     return {"member": {**dict(member), "active": bool(member["active"])}, "summary": summary, "rows": rows}
 

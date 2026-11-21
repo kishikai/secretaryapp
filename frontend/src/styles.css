@@ -1078,6 +1078,11 @@ tr.not-counted td {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.chip.st-no_practice,
+.seg.on.st-no_practice span {
+  background: var(--surface-2, #f1f3f5);
+  color: var(--text-secondary, #475467);
+}
 
 /* ===== Shared patterns (UX pass) =====
    Pages are built from these so the secretary sees one consistent, compact layout:

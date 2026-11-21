@@ -36,19 +36,19 @@ The **Overview** page shows a "Getting started" list until you've done these onc
 ## Taking a register
 
 1. Open the event (it must be scheduled, not a draft).
-2. In **Register**, choose Present, Late, Absent or Excused for each person. **Mark everyone not yet recorded as present** fills in the rest in one go.
+2. In **Register**, choose Present, Late, Absent, No practices or Excused for each person. **Mark everyone not yet recorded as present** fills in the rest in one go.
 3. Click **Save progress** as often as you like. You can stop and come back.
 4. When everyone has a status, click **Finalise register**. This locks it and marks the event completed. Only finalised registers count in absence figures.
 
 Made a mistake on a finalised register? Click **Reopen register** and say why. Every change, finalise and reopen is listed under **Change history** with who did it and when.
 
-**Late** counts as attending. **Excused** means they let you know; it's shown but doesn't count against them.
+**Late** counts as attending. **Excused** means they let you know; it's shown but doesn't count against them. **No practices** marks that person as not expected to practice for this event, so the event is left out of their attendance figures.
 
 ## Absences
 
 The **Absences** page shows, for each person, how many counted events they were expected at and how often they were absent. Only finalised registers of events that weren't cancelled count. Absence rate = absent ÷ (present + late + absent).
 
-Click a name to see every event behind their figures. Events that don't count yet are marked "Not counted".
+Click a name to see every event behind their figures. Events that don't count yet are marked "Not counted". **No practices** is also listed in the member's history but excluded from the events-counted and absence-rate figures.
 
 ## Messages as evidence
 

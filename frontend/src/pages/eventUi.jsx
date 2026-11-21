@@ -17,6 +17,7 @@ export const ATTENDANCE_LABELS = {
   late_excused: "Late (excused)",
   absent: "Absent",
   absent_excused: "Absent (excused)",
+  no_practice: "No practices",
 };
 // "excused" was retired; the change history may still contain it.
 export const attendanceLabel = (s) => (s === "excused" ? "Excused" : (ATTENDANCE_LABELS[s] ?? "Not recorded"));

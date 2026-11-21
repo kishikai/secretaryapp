@@ -4,7 +4,7 @@ import { errorText, formatTime, plural } from "../format.js";
 import Sheet from "../Sheet.jsx";
 import { ATTENDANCE_LABELS as LABELS, attendanceLabel as label } from "./eventUi.jsx";
 
-const COUNT_ORDER = ["not_recorded", "present", "late", "late_excused", "absent", "absent_excused"];
+const COUNT_ORDER = ["not_recorded", "present", "late", "late_excused", "absent", "absent_excused", "no_practice"];
 
 // ----- Unsaved marks kept on this device (the shell clears this prefix on sign-out) -----
 const DRAFT_PREFIX = "secretary.registerDraft.";
@@ -48,6 +48,7 @@ const SHORTCUTS = [
   [["p"], "Present"],
   [["l"], "Late"],
   [["a"], "Absent"],
+  [["n"], "No practices"],
   [["e"], "Toggle excused (for late or absent)"],
   [["x"], "Clear (not recorded); Delete or Backspace also work"],
   [["Ctrl", "S"], "Save (Cmd + S on a Mac)"],
@@ -107,13 +108,14 @@ function History({ eventId, refreshKey }) {
   );
 }
 
-// Three main buttons plus an "Excused" tick map onto the six API statuses.
+// Attendance buttons plus an "Excused" tick map onto the API statuses.
 const MAIN = [
   { key: "present", text: "Present" },
   { key: "late", text: "Late" },
   { key: "absent", text: "Absent" },
+  { key: "no_practice", text: "No practices" },
 ];
-const mainOf = (s) => (s === "present" ? "present" : s === "late" || s === "late_excused" ? "late" : s === "absent" || s === "absent_excused" ? "absent" : null);
+const mainOf = (s) => (s === "present" ? "present" : s === "late" || s === "late_excused" ? "late" : s === "absent" || s === "absent_excused" ? "absent" : s === "no_practice" ? "no_practice" : null);
 const isExcused = (s) => s === "late_excused" || s === "absent_excused";
 
 function AttendanceControls({ person, value, disabled, onChange }) {
@@ -122,6 +124,7 @@ function AttendanceControls({ person, value, disabled, onChange }) {
   const choose = (key) => {
     if (main === key) onChange("not_recorded");
     else if (key === "present") onChange("present");
+    else if (key === "no_practice") onChange("no_practice");
     else onChange(excused ? `${key}_excused` : key);
   };
   const canExcuse = (main === "late" || main === "absent") && !disabled;
@@ -376,6 +379,7 @@ export default function Register({ event, role, onChanged }) {
     if (key === "p") next = "present";
     else if (key === "l") next = excused ? "late_excused" : "late";
     else if (key === "a") next = excused ? "absent_excused" : "absent";
+    else if (key === "n") next = "no_practice";
     else if (key === "e") next = main === "late" || main === "absent" ? (excused ? main : `${main}_excused`) : undefined;
     else if (key === "x" || key === "Delete" || key === "Backspace") next = "not_recorded";
     else return;

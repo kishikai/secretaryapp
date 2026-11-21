@@ -16,7 +16,9 @@ from app.reports_api import RECORDED, absence_rows, member_attendance, rate
 router = APIRouter(prefix="/exports", dependencies=[Depends(require_user)])
 
 STATUS_LABELS = {"not_recorded": "Not recorded", "present": "Present", "late": "Late",
-                 "late_excused": "Late (excused)", "absent": "Absent", "absent_excused": "Absent (excused)"}
+                 "late_excused": "Late (excused)", "absent": "Absent", "absent_excused": "Absent (excused)",
+                 "no_practice": "No practices"}
+EVENT_RECORDED = (*RECORDED, "no_practice")
 RULE = ("Counts only finalised registers of events that weren't cancelled. "
         "Absence rate = absent / (present + late + late excused + absent); absent (excused) isn't counted.")
 
@@ -119,12 +121,12 @@ def events_csv(
         rows.append([e["starts_at"].replace("T", " "), (e["ends_at"] or "").replace("T", " "), e["name"],
                      e["location"], e["category"], e["status"].capitalize(),
                      "Finalised" if e["id"] in finalized else "Not finalised", e["expected_count"],
-                     *[c.get(s, 0) for s in RECORDED], c.get("not_recorded", 0)])
-    totals = ["Total", "", count(len(rows), "event"), "", "", "", "", *[sum(r[i] for r in rows) for i in range(7, 14)]]
+                     *[c.get(s, 0) for s in EVENT_RECORDED], c.get("not_recorded", 0)])
+    totals = ["Total", "", count(len(rows), "event"), "", "", "", "", *[sum(r[i] for r in rows) for i in range(7, 15)]]
     about = [("Search", q or "None"), ("Status", status.capitalize() if status else "All"),
              ("Category", category or "All"), ("Period", period(date_from, date_to))]
     header = ["Starts", "Ends", "Event", "Location", "Category", "Status", "Register", "Expected",
-              *[STATUS_LABELS[s] for s in RECORDED], "Not recorded"]
+              *[STATUS_LABELS[s] for s in EVENT_RECORDED], "Not recorded"]
     return csv_file("events.csv", "Event summary", about, header, rows, totals)
 
 
@@ -178,7 +180,7 @@ def member_history_csv(member_id: int, request: Request):
              "Finalised" if r["finalized"] else "Not finalised", STATUS_LABELS[r["status"]],
              "Yes" if r["counted"] else "No"] for r in history["rows"]]
     about += [("Events counted", str(s["events"]))] + [
-        (label, str(s[key])) for key, label in STATUS_LABELS.items() if key != "not_recorded"
+        (label, str(s[key])) for key, label in STATUS_LABELS.items() if key in s
     ] + [("Absence rate", percent(s["absence_rate"]))]
     return csv_file(f"attendance-member-{member_id}.csv", "Attendance history", about,
                     ["Starts", "Event", "Event status", "Register", "Status", "Counted"], rows)

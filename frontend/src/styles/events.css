@@ -393,7 +393,7 @@ kbd {
 }
 .reg-controls {
   display: grid;
-  grid-template-columns: repeat(3, 5.75rem) auto;
+  grid-template-columns: repeat(4, 5.75rem) auto;
   gap: 0.5rem;
   align-items: center;
 }
@@ -423,6 +423,10 @@ kbd {
 .reg-btn.st-absent[aria-pressed="true"] {
   background: var(--danger-soft);
   color: var(--danger);
+}
+.reg-btn.st-no_practice[aria-pressed="true"] {
+  background: var(--surface-2, #f1f3f5);
+  color: var(--text-secondary, #475467);
 }
 .reg-excused {
   display: inline-flex;
@@ -560,7 +564,9 @@ kbd {
   }
   .reg-controls {
     width: 100%;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    grid-template-columns: repeat(4, 5.25rem) auto;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .reg-btn {
     font-size: 0.85rem;

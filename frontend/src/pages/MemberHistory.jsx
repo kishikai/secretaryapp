@@ -10,6 +10,7 @@ const STATUS = {
   late_excused: "Late (excused)",
   absent: "Absent",
   absent_excused: "Absent (excused)",
+  no_practice: "No practices",
 };
 
 export default function MemberHistory({ id }) {
@@ -92,6 +93,7 @@ export default function MemberHistory({ id }) {
           ["Late (excused)", summary.late_excused],
           ["Absent", summary.absent],
           ["Absent (excused)", summary.absent_excused],
+          ["No practices", summary.no_practice],
         ].map(([label, value]) => (
           <li key={label}>
             <span className="v num">{value}</span>

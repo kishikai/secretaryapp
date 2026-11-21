@@ -237,7 +237,7 @@ Lifecycle: `draft` -> `scheduled` -> `completed`, and a draft or scheduled event
 
 ## Attendance and absences
 
-Each expected person has one status: `not_recorded` (default), `present`, `late`, `absent` or `excused`. The secretary and the assistant record attendance on scheduled or completed events and can save part-way. Only the secretary finalises a register, which needs everyone recorded and marks the event completed, or reopens it, which needs a reason. Every status change, finalise and reopen is kept in `attendance_audit` with who, when, the old and new status and any reason.
+Each expected person has one status: `not_recorded` (default), `present`, `late`, `late_excused`, `absent`, `absent_excused` or `no_practice`. The secretary and the assistant record attendance on scheduled or completed events and can save part-way. Only the secretary finalises a register, which needs everyone recorded and marks the event completed, or reopens it, which needs a reason. Every status change, finalise and reopen is kept in `attendance_audit` with who, when, the old and new status and any reason. `no_practice` remains visible in the register and history but is excluded from that member's attendance and absence figures.
 
 **Absence rule (D9):** only finalised registers of events that weren't cancelled count. Absence rate = absent ÷ (present + late + absent); excused is shown but isn't in the rate, and a member with no present, late or absent has no rate (`null`). A member only counts for events they were expected at.
 

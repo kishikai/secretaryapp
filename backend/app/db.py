@@ -172,7 +172,7 @@ CREATE INDEX IF NOT EXISTS idx_event_attendees_member ON event_attendees (member
 ATTENDANCE_COLUMNS = {
     "event_attendees": {
         "status": "TEXT NOT NULL DEFAULT 'not_recorded' "
-        "CHECK (status IN ('not_recorded', 'present', 'late', 'late_excused', 'absent', 'absent_excused'))",
+        "CHECK (status IN ('not_recorded', 'present', 'late', 'late_excused', 'absent', 'absent_excused', 'no_practice'))",
         "recorded_at": "TEXT",
         "recorded_by": "INTEGER REFERENCES admins(id)",
     },
@@ -261,6 +261,25 @@ ALTER TABLE evidence_reviews_v14 RENAME TO evidence_reviews;
 """,
 }
 
+# v0.15: no_practice is a valid attendance status, so existing SQLite CHECK constraints need a rebuild.
+NO_PRACTICE_REBUILD = """
+CREATE TABLE event_attendees_v15 (
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    member_id INTEGER NOT NULL REFERENCES members(id),
+    added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    status TEXT NOT NULL DEFAULT 'not_recorded'
+        CHECK (status IN ('not_recorded', 'present', 'late', 'late_excused', 'absent', 'absent_excused', 'no_practice')),
+    recorded_at TEXT,
+    recorded_by INTEGER REFERENCES admins(id),
+    PRIMARY KEY (event_id, member_id)
+);
+INSERT INTO event_attendees_v15 (event_id, member_id, added_at, status, recorded_at, recorded_by)
+    SELECT event_id, member_id, added_at, status, recorded_at, recorded_by FROM event_attendees;
+DROP TABLE event_attendees;
+ALTER TABLE event_attendees_v15 RENAME TO event_attendees;
+CREATE INDEX IF NOT EXISTS idx_event_attendees_member ON event_attendees (member_id);
+"""
+
 FTS_REBUILD = "INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');"
 
 
@@ -346,3 +365,6 @@ def init_db(db_path: str) -> None:
             sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = ?", (table,)).fetchone()[0]
             if "absent_excused" not in sql:
                 conn.executescript("BEGIN;" + rebuild + "COMMIT;")
+        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'event_attendees'").fetchone()[0]
+        if "no_practice" not in sql:
+            conn.executescript("BEGIN;" + NO_PRACTICE_REBUILD + "COMMIT;")
