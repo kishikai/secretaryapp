@@ -18,7 +18,6 @@ Only devices signed in to your Tailscale network can open the app, at `https://s
 ```bash
 git clone https://github.com/kishikai/secretaryapp.git
 cd secretaryapp
-git checkout claude/relaxed-lovelace-2rvf5r   # until it's merged
 cp .env.example .env
 nano .env                                     # paste your key after TS_AUTHKEY=
 docker compose -f compose.tailscale.yaml up -d --build
