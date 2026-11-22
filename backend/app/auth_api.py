@@ -16,7 +16,7 @@ class LoginIn(BaseModel):
 def login(credentials: LoginIn, request: Request, response: Response):
     limiter = request.app.state.login_limiter
     ip = request.client.host if request.client else "unknown"
-    wait = limiter.retry_after(ip, credentials.username)
+    wait = limiter.retry_after(ip)
     if wait:
         raise HTTPException(
             429, "Too many failed sign-in attempts; try again later", headers={"Retry-After": str(wait)}
@@ -24,10 +24,9 @@ def login(credentials: LoginIn, request: Request, response: Response):
     with connect(request.app.state.db_path) as conn:
         admin = auth.authenticate(conn, credentials.username, credentials.password)
         if admin is None:
-            limiter.record_failure(ip, credentials.username)
+            limiter.record_failure(ip)
             raise HTTPException(401, "Wrong username or password")
         token = auth.create_session(conn, admin["id"])
-    limiter.clear_username(credentials.username)
     response.set_cookie(
         auth.SESSION_COOKIE,
         token,

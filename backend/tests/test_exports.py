@@ -70,9 +70,9 @@ def test_member_history_and_event_summary(world):
     ]
     events = table(read(client.get("/exports/events.csv", params={"date_to": "2025-02-10"})), "Starts")
     assert [r[2] for r in events[:-1]] == ["Event 2025-01-10", "Event 2025-02-01", "Event 2025-02-10"]
-    assert events[0][5:] == ["Completed", "Finalised", "3", "0", "0", "1", "1", "1", "0"]
+    assert events[0][5:] == ["Completed", "Finalised", "3", "0", "0", "1", "1", "1", "0", "0"]
     # Raw per-event counts (the cancelled 1 Feb event included): Jan LE1 A1 AE1, 1 Feb A1, 10 Feb L1 A2.
-    assert events[-1][0] == "Total" and events[-1][7:] == ["7", "0", "1", "1", "4", "1", "0"]
+    assert events[-1][0] == "Total" and events[-1][7:] == ["7", "0", "1", "1", "4", "1", "0", "0"]
 
 
 def test_member_list_and_formula_injection(db_path):  # noqa: F811

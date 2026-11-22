@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app import admin, auth
 from app.db import connect
@@ -222,12 +223,15 @@ def test_limit_applies_per_ip_across_usernames(app):
     assert fail(client, "another").status_code == 429
 
 
-def test_limit_applies_per_username_across_ips(app):
+def test_failures_for_one_username_do_not_block_other_ips(app):
     signed_in(app)
-    codes = [fail(from_ip(app, f"10.0.0.{i}")).status_code for i in range(6)]
-    assert codes == [401] * 5 + [429]
-    # Username matching ignores case.
-    assert fail(from_ip(app, "10.0.1.1"), "ADMIN").status_code == 429
+    # Failures spread across several IPs never reach the per-IP limit.
+    assert [fail(from_ip(app, f"10.0.0.{i}")).status_code for i in range(8)] == [401] * 8
+    # Five failures from one IP block that IP only; the real user still signs in elsewhere.
+    attacker = from_ip(app, "10.0.1.1")
+    assert [fail(attacker).status_code for _ in range(5)] == [401] * 5
+    assert fail(attacker).status_code == 429
+    assert from_ip(app, "10.0.1.2").post("/auth/login", json=LOGIN).status_code == 200
 
 
 def test_window_slides_and_clears(app):
@@ -242,12 +246,20 @@ def test_window_slides_and_clears(app):
     assert client.post("/auth/login", json=LOGIN).status_code == 200
 
 
-def test_success_clears_the_username_failures(app):
+def test_forwarded_for_is_trusted_only_from_the_proxy(app):
+    wrapped = ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1,172.16.0.0/12")
+    client = TestClient(wrapped, client=("127.0.0.1", 1), headers=CSRF_HEADERS)
     signed_in(app)
-    assert [fail(from_ip(app, f"10.0.0.{i}")).status_code for i in range(4)] == [401] * 4
-    assert from_ip(app, "10.0.0.50").post("/auth/login", json=LOGIN).status_code == 200
-    # Four more failures would be 8 in total without the reset.
-    assert [fail(from_ip(app, f"10.0.1.{i}")).status_code for i in range(4)] == [401] * 4
+    # A different fake first entry each time; the proxy-appended last entry is the real client.
+    codes = [
+        client.post(
+            "/auth/login",
+            json={**LOGIN, "password": "wrong password"},
+            headers={"X-Forwarded-For": f"10.9.9.{i}, 100.64.0.5"},
+        ).status_code
+        for i in range(6)
+    ]
+    assert codes == [401] * 5 + [429]
 
 
 # ------------------------------------------------------------- route audit

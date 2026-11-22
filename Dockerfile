@@ -25,5 +25,6 @@ VOLUME ["/data", "/backups"]
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
 # One worker: SQLite and the in-memory sign-in rate limiter assume a single process.
-# Proxy headers are trusted because only Caddy can reach this port (it isn't published).
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# Only the reverse proxy's addresses are trusted for X-Forwarded-For (127.0.0.1: Tailscale Serve,
+# 172.16.0.0/12: Caddy on Docker bridge networks), so a client cannot fake its IP with that header.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1,172.16.0.0/12"]

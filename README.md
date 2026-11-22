@@ -14,6 +14,14 @@
 - Collect messages from a clipboard or Messenger screenshots as optional evidence. A secretary approves each suggestion before it changes a register.
 - Prepare announcements to copy and send yourself.
 
+## What's new in v1.1.0
+
+- **No practices status.** Mark someone as not expected to practice for an event; it's left out of their attendance figures and absence rate. See the [secretary guide](docs/secretary-guide.md).
+- **Sign-in can't be locked by others.** Failed sign-ins are limited per device (IP address), not per username, so nobody can lock a real user out by guessing their password.
+- **Client IPs can't be faked.** The server only trusts the reverse proxy's forwarded address, so the sign-in limit can't be bypassed with a forged header.
+
+To upgrade, pull the latest code, then rebuild and restart: `docker compose up -d --build` (add `-f compose.tailscale.yaml` for Tailscale). Your data is kept. All changes are listed on the [releases page](https://github.com/kishikai/secretaryapp/releases).
+
 ## Screenshots
 
 The screenshots use synthetic demo data.
