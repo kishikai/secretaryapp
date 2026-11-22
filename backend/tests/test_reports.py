@@ -90,7 +90,7 @@ def test_member_history_explains_the_totals(world):
     client, people, ids = world
     history = client.get(f"/members/{people['ann']}/attendance").json()
     assert history["summary"] == {"events": 2, "present": 0, "late": 1, "late_excused": 1, "absent": 0,
-                                  "absent_excused": 0, "absence_rate": 0.0}
+                                  "absent_excused": 0, "no_practice": 0, "absence_rate": 0.0}
     assert [(r["event_id"], r["status"], r["finalized"], r["counted"]) for r in history["rows"]] == [
         (ids["mar"], "absent", False, False),
         (ids["open"], "not_recorded", False, False),
