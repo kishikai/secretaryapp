@@ -251,10 +251,12 @@ def caller_scope(conn: sqlite3.Connection, request: Request) -> Optional[str]:
 
 
 class LoginRateLimiter:
-    """Sliding-window failure counter per client IP and per lower-cased username.
+    """Sliding-window failure counter per client IP only.
 
-    State is in memory: the limit resets when the server restarts, and behind a
-    reverse proxy every client shares the proxy's IP address.
+    There is deliberately no per-username counter: it would let anyone lock a
+    real user out by sending bad guesses for that username.
+
+    State is in memory: the limit resets when the server restarts.
     """
 
     def __init__(
@@ -267,38 +269,32 @@ class LoginRateLimiter:
         self.window = window
         self.clock = clock
         self._lock = threading.Lock()
-        self._failures: dict[tuple[str, str], list[float]] = {}
+        self._failures: dict[str, list[float]] = {}
 
-    def _recent(self, key: tuple[str, str], now: float) -> list[float]:
-        recent = [t for t in self._failures.get(key, []) if t > now - self.window]
+    def _recent(self, ip: str, now: float) -> list[float]:
+        recent = [t for t in self._failures.get(ip, []) if t > now - self.window]
         if recent:
-            self._failures[key] = recent
+            self._failures[ip] = recent
         else:
-            self._failures.pop(key, None)
+            self._failures.pop(ip, None)
         return recent
 
-    def retry_after(self, ip: str, username: str) -> int:
+    def retry_after(self, ip: str) -> int:
         """Seconds until a login attempt is allowed again; 0 when it is allowed now."""
         now = self.clock()
-        wait = 0.0
         with self._lock:
-            for key in (("ip", ip), ("user", username.lower())):
-                recent = self._recent(key, now)
-                if len(recent) >= self.max_failures:
-                    # Allowed again once enough old failures have left the window.
-                    wait = max(wait, recent[len(recent) - self.max_failures] + self.window - now)
+            recent = self._recent(ip, now)
+            if len(recent) < self.max_failures:
+                return 0
+            # Allowed again once enough old failures have left the window.
+            wait = recent[len(recent) - self.max_failures] + self.window - now
         return int(wait) + 1 if wait > 0 else 0
 
-    def record_failure(self, ip: str, username: str) -> None:
+    def record_failure(self, ip: str) -> None:
         now = self.clock()
         with self._lock:
             if len(self._failures) > 10_000:  # keys are attacker-chosen; drop expired ones
                 for key in list(self._failures):
                     self._recent(key, now)
-            for key in (("ip", ip), ("user", username.lower())):
-                self._recent(key, now)
-                self._failures.setdefault(key, []).append(now)
-
-    def clear_username(self, username: str) -> None:
-        with self._lock:
-            self._failures.pop(("user", username.lower()), None)
+            self._recent(ip, now)
+            self._failures.setdefault(ip, []).append(now)

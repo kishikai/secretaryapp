@@ -86,7 +86,7 @@ python -m app.admin create-user admin
 
 **Cross-site requests.** A request that is authenticated by the cookie and is not `GET`, `HEAD` or `OPTIONS` must send the header `X-Requested-With: secretary`, otherwise it gets 403. `POST /auth/login` and `/auth/logout` need it too. Bearer-token requests are exempt. There is no CORS: the dashboard is served from the same origin as the API.
 
-**Rate limit.** After 5 failed sign-ins for one client IP, or for one username (compared in lower case), further attempts get 429 with a `Retry-After` header (seconds) until the 15-minute sliding window has cleared. A successful sign-in clears that username's failures. The counters are in memory: they reset when the server restarts, and behind a reverse proxy every client shares the proxy's IP address, so the per-IP limit then applies to everyone together.
+**Rate limit.** After 5 failed sign-ins from one client IP, further attempts from that IP get 429 with a `Retry-After` header (seconds) until the 15-minute sliding window has cleared; there is no per-username limit, so nobody can lock a user out. The counters are in memory and reset when the server restarts.
 
 **Ingest tokens** let the clipboard collector (or a script) store messages without an admin password. Create one per client:
 
