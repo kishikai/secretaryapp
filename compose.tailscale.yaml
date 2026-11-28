@@ -1,5 +1,6 @@
 # Private deployment on your tailnet: https://secretary.<your-tailnet>.ts.net, reachable only from
-# your Tailscale devices. No domain, open ports or Caddy needed. See docs/deploy.md.
+# your Tailscale devices (or public with TS_SERVE_FILE=tailscale-funnel.json). No domain, open
+# ports or Caddy needed. See docs/deploy.md.
 #   docker compose -f compose.tailscale.yaml up -d --build
 services:
   tailscale:
@@ -14,7 +15,7 @@ services:
       TS_USERSPACE: "true"
     volumes:
       - tailscale_state:/var/lib/tailscale
-      - ./deploy/tailscale-serve.json:/config/serve.json:ro
+      - ./deploy/${TS_SERVE_FILE:-tailscale-serve.json}:/config/serve.json:ro
 
   app:
     build: .
