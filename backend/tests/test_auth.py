@@ -543,6 +543,21 @@ def test_static_frontend_is_served_and_api_wins(tmp_path, db_path, monkeypatch):
     assert client.post("/messages", json=MESSAGE).status_code == 401
 
 
+def test_home_page_fills_in_site_origin_for_link_previews(tmp_path, db_path, monkeypatch):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text('<meta property="og:image" content="%SITE_ORIGIN%/og-image.png">')
+    monkeypatch.setenv("SECRETARY_FRONTEND_DIST", str(dist))
+    client = TestClient(create_app(db_path), base_url="https://club.example")
+    for path in ("/", "/index.html"):
+        page = client.get(path)
+        assert page.status_code == 200
+        assert 'content="https://club.example/og-image.png"' in page.text
+        assert page.headers["X-Frame-Options"] == "DENY"
+    evil = client.get("/", headers={"Host": 'x"><script>'})
+    assert "<script>" not in evil.text
+
+
 def test_no_static_mount_without_a_dist_directory(tmp_path, db_path, monkeypatch):
     monkeypatch.setenv("SECRETARY_FRONTEND_DIST", str(tmp_path / "missing"))
     client = TestClient(create_app(db_path))
