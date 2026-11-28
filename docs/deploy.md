@@ -46,6 +46,35 @@ docker compose exec app python -m app.admin create-user yourname --role secretar
 
 Caddy gets and renews the HTTPS certificate automatically.
 
+## Free hosting on Render (no card, no server)
+
+Render's free plan runs the app from your GitHub repo and redeploys on every push to `main`. Its disk is wiped on every restart, so [Litestream](https://litestream.io) copies each database change to free Backblaze B2 storage within a second and restores it when the app starts.
+
+Things to know: the free plan sleeps after about 15 minutes with no visitors, and the next visit takes 30–60 seconds. It has no shell, so the first secretary is created from settings.
+
+**1. Backblaze B2** (free up to 10 GB, at [backblaze.com](https://www.backblaze.com/cloud-storage)):
+
+1. Sign up, then go to *B2 Cloud Storage → Buckets → Create a Bucket*. Give it a unique name (e.g. `yourclub-secretary`) and leave it **Private**.
+2. Note the bucket's **Endpoint**, e.g. `s3.us-west-004.backblazeb2.com`.
+3. *Application Keys → Add a New Application Key*: allow access to that bucket only, with Read and Write. Copy the **keyID** and **applicationKey** (the key is shown only once).
+
+**2. Render** (at [render.com](https://render.com)):
+
+1. *New → Blueprint*, connect GitHub and pick this repository. Render reads `render.yaml`.
+2. Fill in the values it asks for:
+   - `LITESTREAM_BUCKET`: the bucket name
+   - `LITESTREAM_ENDPOINT`: the endpoint, without `https://`
+   - `LITESTREAM_ACCESS_KEY_ID` / `LITESTREAM_SECRET_ACCESS_KEY`: the keyID and applicationKey
+   - `SECRETARY_ADMIN_USERNAME` / `SECRETARY_ADMIN_PASSWORD`: your first secretary account (password at least 12 characters)
+3. *Apply*. The first build takes several minutes. Then open the `https://secretary-xxxx.onrender.com` address shown in Render and sign in.
+4. Once you've signed in, delete `SECRETARY_ADMIN_PASSWORD` under *Environment* (it's only needed once).
+
+**Check once** in Render's *Logs* that sign-in requests show your own IP address (search "what is my IP"), not a `10.x` address. If they show a `10.x` address or a fixed address, tell the maintainer: sign-in limits would then be shared by everyone.
+
+**Updating:** push to `main`, and Render rebuilds and restarts by itself. Data is restored from B2 each time.
+
+**More users:** there's no shell, so set `SECRETARY_ADMIN_USERNAME` / `SECRETARY_ADMIN_PASSWORD` to the new person's details and save. Render restarts and creates the account (as a secretary; existing accounts are left alone). Then delete the password again.
+
 ## Free hosting on Oracle Cloud (with Tailscale Funnel)
 
 Oracle's Always Free tier runs the app 24/7 at no cost. Tailscale Funnel makes it public at `https://secretary.<your-tailnet>.ts.net`, with no domain to buy and no Oracle ports to open. Leave out step 3 to keep it private to your tailnet.

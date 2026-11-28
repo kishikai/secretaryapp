@@ -14,6 +14,9 @@ COPY backend/requirements.txt ./
 RUN sed 's/^opencv-contrib-python==/opencv-contrib-python-headless==/' requirements.txt > requirements-server.txt \
     && pip install --no-cache-dir -r requirements-server.txt
 COPY backend/app ./app
+# Litestream: optional database copying for hosts with a throwaway disk (deploy/render-start.sh).
+COPY --from=litestream/litestream:0.3.13 /usr/local/bin/litestream /usr/local/bin/litestream
+COPY deploy/render-start.sh deploy/litestream.yml ./deploy/
 COPY --from=frontend /frontend/dist ./frontend-dist
 RUN useradd --uid 1000 --create-home secretary \
     && mkdir -p /data /backups && chown secretary:secretary /data /backups
