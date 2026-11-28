@@ -5,6 +5,7 @@ import { dataPathFor } from "./prefetch.js";
 import { Toaster } from "./toast.jsx";
 import { prefersReducedMotion } from "./ui.jsx";
 import GlobalSearch from "./Search.jsx";
+import AccountMenu from "./Account.jsx";
 import Login from "./pages/Login.jsx";
 import Overview from "./pages/Overview.jsx";
 import Messages from "./pages/Messages.jsx";
@@ -18,7 +19,7 @@ import Evidence from "./pages/Evidence.jsx";
 import Announcements from "./pages/Announcements.jsx";
 import { HIDDEN_TABS, MESSAGES_ENABLED } from "./features.js";
 
-// Simple 24px line icons for the phone tab bar (decorative: every tab also has its text label).
+// Simple 24px line icons for the sidebar and the phone tab bar (decorative: every tab also has its text label).
 const ICONS = {
   overview: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
   members: (
@@ -123,6 +124,15 @@ function usePrefetchOnPress() {
 // Unsaved register marks kept on this device (see Register.jsx). Removed when someone signs out,
 // so the next person on a shared device doesn't see them.
 const DRAFT_PREFIX = "secretary.registerDraft.";
+function countDrafts() {
+  try {
+    let n = 0;
+    for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith(DRAFT_PREFIX)) n++;
+    return n;
+  } catch {
+    return 0;
+  }
+}
 function clearDrafts() {
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -205,13 +215,17 @@ function Shell({ user, onSignOut }) {
   }, [tab]);
 
   return (
-    <>
+    <div className="shell">
       <a className="skip-link" href="#main">
         Skip to content
       </a>
       <header className="app-header">
         <div className="app-header-inner">
-          <span className="brand">Secretary</span>
+          <a className="brand" href="#overview">
+            <img className="brand-mark" src="/icon-192.png" alt="" width="28" height="28" />
+            <span>Secretary</span>
+          </a>
+          <GlobalSearch />
           <nav aria-label="Main" className={tabs.length <= MAX_BOTTOM_TABS ? "has-bottom-tabs" : undefined}>
             <ul className="tabs">
               {tabs.map((t) => (
@@ -230,36 +244,32 @@ function Shell({ user, onSignOut }) {
               ))}
             </ul>
           </nav>
-          <GlobalSearch />
-          <div className="user-box">
-            <span className="muted">{user.username}</span>
-            <button type="button" onClick={onSignOut}>
-              Sign out
-            </button>
-          </div>
+          <AccountMenu user={user} countDrafts={countDrafts} onSignOut={onSignOut} />
         </div>
       </header>
-      {isSecretary && MESSAGES_ENABLED && collectorOffline && (
-        <div className="collector-notice" role="status">
-          <p>
-            The message collector is offline. Attendance still works — you can take registers by hand. <a href="#overview">See details</a>
-          </p>
-        </div>
-      )}
-      <Toaster />
-      <main id="main" className="page">
-        {tab === "overview" && <Overview role={user.role} />}
-        {tab === "members" && <Members role={user.role} groupParam={params.get("group")} idParam={params.get("id")} />}
-        {tab === "groups" && <Groups role={user.role} />}
-        {tab === "events" && <Events role={user.role} idParam={params.get("id")} />}
-        {tab === "announcements" && <Announcements />}
-        {tab === "absences" && <Absences />}
-        {tab === "evidence" && <Evidence />}
-        {tab === "messages" && <Messages />}
-        {tab === "notifications" && <Notifications onUnreadChange={refreshUnread} />}
-        {tab === "rules" && <Rules />}
-      </main>
-    </>
+      <div className="shell-main">
+        {isSecretary && MESSAGES_ENABLED && collectorOffline && (
+          <div className="collector-notice" role="status">
+            <p>
+              The message collector is offline. Attendance still works — you can take registers by hand. <a href="#overview">See details</a>
+            </p>
+          </div>
+        )}
+        <Toaster />
+        <main id="main" className="page">
+          {tab === "overview" && <Overview role={user.role} />}
+          {tab === "members" && <Members role={user.role} groupParam={params.get("group")} idParam={params.get("id")} />}
+          {tab === "groups" && <Groups role={user.role} />}
+          {tab === "events" && <Events role={user.role} idParam={params.get("id")} />}
+          {tab === "announcements" && <Announcements />}
+          {tab === "absences" && <Absences />}
+          {tab === "evidence" && <Evidence />}
+          {tab === "messages" && <Messages />}
+          {tab === "notifications" && <Notifications onUnreadChange={refreshUnread} />}
+          {tab === "rules" && <Rules />}
+        </main>
+      </div>
+    </div>
   );
 }
 

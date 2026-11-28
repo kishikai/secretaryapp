@@ -12,21 +12,23 @@
 .search-trigger {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0.5rem;
-  min-height: 2.25rem;
-  padding: 0.3rem 0.6rem;
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
+  min-height: var(--ctl-h);
+  padding: 0 0.5rem 0 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--muted);
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
+  font-weight: 400;
   cursor: pointer;
 }
-.search-trigger:hover {
+.search-trigger:hover:not(:disabled) {
   color: var(--text);
-  border-color: var(--accent);
+  background: var(--bg);
+  border-color: var(--border-strong);
 }
 .search-trigger-text {
   flex: 1 1 auto;
@@ -39,7 +41,7 @@
 .search-trigger kbd {
   flex: none;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: var(--t-label);
   line-height: 1;
   padding: 0.2rem 0.4rem;
   background: var(--surface);
@@ -161,10 +163,8 @@ dialog.search-sheet {
 }
 .search-group-label {
   padding: 0.6rem 1rem 0.2rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: var(--t-label);
+  font-weight: 600;
   color: var(--muted);
 }
 .search-option {
@@ -226,5 +226,12 @@ dialog.search-sheet {
 @media (prefers-reduced-motion: no-preference) {
   .search-results [role="listbox"] {
     transition: opacity 0.12s;
+  }
+}
+
+/* Top bar (641 to 1023px): no room for the shortcut hint beside the tabs */
+@media (max-width: 1023px) {
+  .search-trigger kbd {
+    display: none;
   }
 }

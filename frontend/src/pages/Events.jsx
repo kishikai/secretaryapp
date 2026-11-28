@@ -196,7 +196,7 @@ function EventList({ role }) {
             const takeRegister = ev.status === "scheduled" && day && day <= today;
             const where = [formatEventWhen(ev.starts_at, ev.ends_at), ev.location].filter(Boolean);
             return (
-              <li key={ev.id} className="row">
+              <li key={ev.id} className="row row-link">
                 <div className="row-main">
                   <div className="row-title">
                     <a href={`#events?id=${ev.id}`}>{ev.name}</a>
@@ -213,7 +213,7 @@ function EventList({ role }) {
                   <span className="muted expected">{ev.expected_count ?? 0} expected</span>
                   <StatusChip status={ev.status} />
                   {takeRegister && (
-                    <a className="button small primary" href={`#events?id=${ev.id}`}>
+                    <a className="button small" href={`#events?id=${ev.id}`}>
                       Take register<span className="sr-only"> for {ev.name}</span>
                     </a>
                   )}
