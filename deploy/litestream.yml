@@ -1,0 +1,11 @@
+# Litestream copies every database change to S3-compatible storage (e.g. Backblaze B2) and
+# restores it on start. Used by deploy/render-start.sh; values come from environment variables.
+dbs:
+  - path: ${SECRETARY_DB_PATH}
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_BUCKET}
+        path: secretary
+        endpoint: https://${LITESTREAM_ENDPOINT}
+        region: ${LITESTREAM_REGION}
+        force-path-style: true
