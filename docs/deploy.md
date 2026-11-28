@@ -46,6 +46,44 @@ docker compose exec app python -m app.admin create-user yourname --role secretar
 
 Caddy gets and renews the HTTPS certificate automatically.
 
+## Free hosting on Oracle Cloud (with Tailscale Funnel)
+
+Oracle's Always Free tier runs the app 24/7 at no cost. Tailscale Funnel makes it public at `https://secretary.<your-tailnet>.ts.net`, with no domain to buy and no Oracle ports to open. Leave out step 3 to keep it private to your tailnet.
+
+**1. Create the VM** (at [cloud.oracle.com](https://cloud.oracle.com)): *Compute → Instances → Create instance*.
+
+- *Image*: **Canonical Ubuntu 24.04**.
+- *Shape*: **Ampere → VM.Standard.A1.Flex**, 2 OCPU and 12 GB memory (within the free limit). Avoid the AMD micro: 1 GB of RAM is too little to build the app.
+- *SSH keys*: download the private key (or paste your own public key).
+- Leave the networking defaults. If it says "out of capacity", try another availability domain or try again later.
+
+Then connect: `ssh -i your-key.key ubuntu@<public-ip>`.
+
+**2. Set up the machine** (installs Docker and Git, clones the app, adds a nightly backup):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kishikai/secretaryapp/main/deploy/oracle-setup.sh | bash
+```
+
+Log out and back in afterwards.
+
+**3. Turn on Funnel** in the [Tailscale admin console](https://login.tailscale.com/admin): under *DNS*, turn on **MagicDNS** and **HTTPS Certificates**. Under *Access controls*, make sure the policy grants the `funnel` attribute (new tailnets do by default; the console offers to add it if not). Then generate an auth key under *Settings → Keys*.
+
+**4. Configure and start:**
+
+```bash
+cd ~/secretaryapp
+nano .env      # paste the key after TS_AUTHKEY=, and uncomment TS_SERVE_FILE=tailscale-funnel.json
+docker compose -f compose.tailscale.yaml up -d --build
+docker compose -f compose.tailscale.yaml exec app python -m app.admin create-user yourname --role secretary
+```
+
+The first build takes a few minutes. Then open `https://secretary.<your-tailnet>.ts.net` from any device.
+
+**Updating:** `~/secretaryapp/update.sh` backs up the database, pulls the latest code, rebuilds and restarts.
+
+**Keep it from being reclaimed:** Oracle may stop Always Free VMs that stay almost idle for 7 days. Upgrading the account to *Pay As You Go* prevents this, and you still pay nothing within the Always Free limits.
+
 In the commands below, add `-f compose.tailscale.yaml` after `docker compose` if you used set-up A.
 
 ## Every day: nothing
@@ -77,11 +115,10 @@ docker compose -f compose.tailscale.yaml start app
 ## Updating
 
 ```bash
-git pull
-docker compose -f compose.tailscale.yaml up -d --build
+./update.sh
 ```
 
-Database changes are applied automatically when the app starts. Take a backup first.
+It takes a backup, pulls the latest code, rebuilds and restarts. Database changes are applied automatically when the app starts.
 
 ## The message collector
 
