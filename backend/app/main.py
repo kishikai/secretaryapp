@@ -1,3 +1,4 @@
+import html
 import os
 import re
 import threading
@@ -6,6 +7,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
@@ -286,6 +288,16 @@ def create_app(db_path: str = DEFAULT_DB_PATH, ocr_engine=None) -> FastAPI:
     # Mounted last so every API route above wins over the static files.
     dist = Path(os.environ.get("SECRETARY_FRONTEND_DIST") or DEFAULT_FRONTEND_DIST)
     if dist.is_dir():
+        index = dist / "index.html"
+
+        # Link previews (Messenger, WhatsApp...) need absolute URLs in og: tags, but the site's
+        # address is only known per request, so fill it in when serving the page.
+        @app.get("/", include_in_schema=False)
+        @app.get("/index.html", include_in_schema=False)
+        def home(request: Request):
+            origin = html.escape(str(request.base_url).rstrip("/"), quote=True)
+            return HTMLResponse(index.read_text(encoding="utf-8").replace("%SITE_ORIGIN%", origin))
+
         app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")
 
     return app
