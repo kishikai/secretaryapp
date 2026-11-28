@@ -33,8 +33,9 @@ export default function Login({ onLogin, notice }) {
   return (
     <main className="login-wrap">
       <form className="card login" onSubmit={submit}>
-        <h1>Secretary</h1>
-        <p className="muted">Sign in to the admin dashboard.</p>
+        <img className="login-mark" src="/icon-192.png" alt="" width="48" height="48" />
+        <h1>Sign in to Secretary</h1>
+        <p className="muted login-lead">Members, events and attendance registers.</p>
         {notice && !error && (
           <p role="status" className="notice">
             {notice}

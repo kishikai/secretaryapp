@@ -341,7 +341,7 @@ export default function GlobalSearch() {
         <Magnifier />
         {!phone && (
           <>
-            <span className="search-trigger-text">Search members and events</span>
+            <span className="search-trigger-text">Search</span>
             <kbd aria-hidden="true">{apple ? "⌘K" : "Ctrl K"}</kbd>
           </>
         )}

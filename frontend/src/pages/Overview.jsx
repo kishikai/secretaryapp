@@ -153,7 +153,7 @@ export default function Overview({ role }) {
               ) : (
                 <ul className="rows ov-rows">
                   {data.registers_to_finish.map((ev) => (
-                    <li key={ev.id} className="row">
+                    <li key={ev.id} className="row row-link">
                       <div className="row-main">
                         <div className="row-title">
                           <a href={`#events?id=${ev.id}`}>{ev.name}</a>
@@ -163,12 +163,7 @@ export default function Overview({ role }) {
                         </div>
                       </div>
                       <div className="row-side">
-                        <span className="num ov-count">{ev.not_recorded} not recorded</span>
-                      </div>
-                      <div className="row-actions-inline">
-                        <a className="button small primary" href={`#events?id=${ev.id}`}>
-                          Finish register<span className="sr-only"> for {ev.name}</span>
-                        </a>
+                        <span className="num ov-count warn-text">{ev.not_recorded} not recorded</span>
                       </div>
                     </li>
                   ))}
@@ -183,7 +178,7 @@ export default function Overview({ role }) {
               ) : (
                 <ul className="rows ov-rows">
                   {data.upcoming_events.map((ev) => (
-                    <li key={ev.id} className="row">
+                    <li key={ev.id} className="row row-link">
                       <div className="row-main">
                         <div className="row-title">
                           <a href={`#events?id=${ev.id}`}>{ev.name}</a>
@@ -194,11 +189,6 @@ export default function Overview({ role }) {
                       </div>
                       <div className="row-side">
                         <span className="num ov-count">{ev.expected_count} expected</span>
-                      </div>
-                      <div className="row-actions-inline">
-                        <a className="button small" href={`#events?id=${ev.id}`}>
-                          Open<span className="sr-only"> {ev.name}</span>
-                        </a>
                       </div>
                     </li>
                   ))}
@@ -239,7 +229,7 @@ export default function Overview({ role }) {
             ) : (
               <ul className="rows ov-rows">
                 {data.most_absent.map((m) => (
-                  <li key={m.member_id} className="row">
+                  <li key={m.member_id} className="row row-link">
                     <div className="row-main">
                       <div className="row-title">
                         <a href={`#members?id=${m.member_id}`}>{m.full_name}</a>

@@ -122,9 +122,9 @@
   max-width: calc(100vw - 2rem);
   padding: 0.35rem;
   background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-pop);
 }
 .menu-panel button {
   width: 100%;
@@ -393,7 +393,7 @@ kbd {
 }
 .reg-controls {
   display: grid;
-  grid-template-columns: repeat(4, 5.75rem) auto;
+  grid-template-columns: repeat(3, 5.75rem) 7.25rem auto;
   gap: 0.5rem;
   align-items: center;
 }
@@ -425,8 +425,8 @@ kbd {
   color: var(--danger);
 }
 .reg-btn.st-no_practice[aria-pressed="true"] {
-  background: var(--surface-2, #f1f3f5);
-  color: var(--text-secondary, #475467);
+  background: var(--surface-2);
+  color: var(--text);
 }
 .reg-excused {
   display: inline-flex;
@@ -564,7 +564,7 @@ kbd {
   }
   .reg-controls {
     width: 100%;
-    grid-template-columns: repeat(4, 5.25rem) auto;
+    grid-template-columns: repeat(3, 5.25rem) 6.75rem auto;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
